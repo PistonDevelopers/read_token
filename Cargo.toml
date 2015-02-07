@@ -1,0 +1,20 @@
+[package]
+
+name = "read_token"
+version = "0.0.0"
+authors = ["bvssvni <bvssvni@gmail.com>"]
+keywords = ["read", "parse", "token", "piston"]
+description = "A simple library to read tokens using look ahead"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/pistondevelopers/read_token.git"
+homepage = "https://github.com/pistondevelopers/read_token"
+
+[lib]
+
+name = "read_token"
+path = "src/lib.rs"
+
+[dependencies.range]
+git = "https://github.com/pistondevelopers/range"
+#version = "0.0.1"
