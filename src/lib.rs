@@ -33,6 +33,14 @@ pub fn until_any_or_whitespace(
     Range::new(offset, chars.len())
 }
 
+/// Reads whitespace.
+pub fn whitespace(chars: &[char], offset: usize) -> Range {
+    for (i, &c) in chars.iter().enumerate() {
+        if !c.is_whitespace() { return Range::new(offset, i) }
+    }
+    Range::new(offset, chars.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,5 +62,12 @@ mod tests {
         assert_eq!(res, Range::new(0, 3));
         let res = until_any_or_whitespace(",", &text[3..], 0);
         assert_eq!(res, Range::empty(0));
+    }
+
+    #[test]
+    pub fn test_whitespace() {
+        let text = "   123".chars().collect::<Vec<char>>();
+        let res = whitespace(&text[], 0);
+        assert_eq!(res, Range::new(0, 3));
     }
 }
