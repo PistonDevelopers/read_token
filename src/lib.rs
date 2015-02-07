@@ -47,13 +47,102 @@ pub fn string(chars: &[char], offset: usize) -> Option<Range> {
     let mut escape = false;
     for i in 1..chars.len() - 1 {
         if chars[i] == '\\' { escape = true; continue; }
-        if !escape && chars[i] == '"' { return Some(Range::new(offset, i)) }
+        if !escape && chars[i] == '"' { return Some(Range::new(offset, i + 1)) }
     }
     if chars[chars.len() - 1] == '"' {
         return Some(Range::new(offset, chars.len()))
     } else {
         return None
     }
+}
+
+/// Contains errors when parsing a string.
+#[derive(Copy, Debug)]
+pub enum ParseStringError {
+    /// Expected four hexadecimals, found less characters
+    ExpectedFourHexadecimals(Range),
+    /// Expected character `0-9a-fA-F`
+    ExpectedHexadecimal(Range),
+    /// Found four hexadecimals, but not an invalid unicode character
+    ExpectedValidUnicode(Range),
+    /// A character escape `\x` is invalid
+    ExpectedValidEscapeCharacter(Range),
+}
+
+/// Parses four unicode characters in hexadecimal format.
+pub fn parse_unicode(
+    chars: &[char],
+    offset: usize
+) -> Result<char, ParseStringError> {
+    use std::char;
+
+    if chars.len() < 4 {
+        return Err(ParseStringError::ExpectedFourHexadecimals(
+            Range::new(offset, chars.len())
+        ));
+    }
+
+    let mut u: [u32; 4] = [0; 4];
+    for (i, c) in u.iter_mut().enumerate() {
+        match chars[i].to_digit(16) {
+            Some(x) => *c = x as u32,
+            None => {
+                return Err(ParseStringError::ExpectedHexadecimal(
+                    Range::new(offset + i, 1)
+                ))
+            }
+        }
+    }
+    let code = (u[0] << 12) | (u[1] << 8) | (u[2] << 4) | u[3];
+    match char::from_u32(code) {
+        Some(x) => Ok(x),
+        None => Err(ParseStringError::ExpectedValidUnicode(
+            Range::new(offset, 4)
+        ))
+    }
+}
+
+/// Parses string into a real string according to the JSON standard.
+/// Assumes the string starts and ends with double-quotes.
+pub fn parse_string(
+    chars: &[char],
+    range: Range
+) -> Result<String, ParseStringError> {
+    let mut escape = false;
+    let range = range.shrink().unwrap();
+    let mut txt = String::with_capacity(range.length);
+    for (i, &c) in chars[range.iter()].iter().enumerate() {
+        println!("TEST {:?}", c);
+        if c == '\\' { escape = true; continue; }
+        if escape {
+            escape = false;
+            txt.push(match c {
+                '\"' => '"',
+                '\\' => '\\',
+                '/' => '/',
+                'b' => '\u{0008}',
+                'f' => '\u{000c}',
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                'u' => {
+                    let offset = range.offset + i;
+                    match parse_unicode(&chars[offset..], offset) {
+                        Ok(x) => x,
+                        Err(err) => return Err(err)
+                    }
+                }
+                _ => {
+                    return Err(ParseStringError::ExpectedValidEscapeCharacter(
+                        Range::new(range.offset + i, 1)
+                    ));
+                }
+            })
+        } else {
+            txt.push(c)
+        }
+    }
+    Ok(txt)
 }
 
 /// Reads number.
@@ -112,14 +201,22 @@ mod tests {
         let text = "\"hello\"".chars().collect::<Vec<char>>();
         let res = string(&text[], 0);
         assert_eq!(res, Some(Range::new(0, 7)));
+        let txt = parse_string(&text[], res.unwrap()).ok().unwrap();
+        assert_eq!(txt, "hello");
 
         let text = "\"he\\\"llo\"".chars().collect::<Vec<char>>();
         let res = string(&text[], 0);
         assert_eq!(res, Some(Range::new(0, 9)));
+        let txt = parse_string(&text[], res.unwrap());
+        let txt = txt.ok().unwrap();
+        assert_eq!(txt, "he\"llo");
 
         let text = "\"he\"llo\"".chars().collect::<Vec<char>>();
         let res = string(&text[], 0);
-        assert_eq!(res, Some(Range::new(0, 3)));
+        assert_eq!(res, Some(Range::new(0, 4)));
+        let txt = parse_string(&text[], res.unwrap());
+        let txt = txt.ok().unwrap();
+        assert_eq!(txt, "he");
     }
 
     #[test]
