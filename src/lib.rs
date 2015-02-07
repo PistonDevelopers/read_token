@@ -116,7 +116,6 @@ pub fn parse_string(
     let range = range.shrink().unwrap();
     let mut txt = String::with_capacity(range.length);
     for (i, &c) in chars[range.iter()].iter().enumerate() {
-        println!("TEST {:?}", c);
         if c == '\\' { escape = true; continue; }
         if escape {
             escape = false;
