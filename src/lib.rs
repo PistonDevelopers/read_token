@@ -147,9 +147,14 @@ pub fn parse_string(
 
 /// Reads number.
 pub fn number(chars: &[char], offset: usize) -> Option<Range> {
+    let mut has_sign = false;
     let mut has_decimal_separator = false;
     let mut has_scientific = false;
     for (i, &c) in chars.iter().enumerate() {
+        if !has_sign {
+            has_sign = true;
+            if c == '+' || c == '-' { continue; }
+        }
         if c.is_digit(10) { continue; }
         if !has_decimal_separator && c == '.' {
             has_decimal_separator = true;
@@ -222,6 +227,7 @@ mod tests {
     #[test]
     pub fn test_number() {
         let _: f64 = "20".parse().unwrap();
+        let _: f64 = "-20".parse().unwrap();
         let _: f64 = "2e2".parse().unwrap();
         let _: f64 = "2.5".parse().unwrap();
         let _: f64 = "2.5e2".parse().unwrap();
@@ -230,6 +236,10 @@ mod tests {
         let text = "20".chars().collect::<Vec<char>>();
         let res = number(&text[], 0);
         assert_eq!(res, Some(Range::new(0, 2)));
+
+        let text = "-20".chars().collect::<Vec<char>>();
+        let res = number(&text[], 0);
+        assert_eq!(res, Some(Range::new(0, 3)));
 
         let text = "2e2".chars().collect::<Vec<char>>();
         let res = number(&text[], 0);
