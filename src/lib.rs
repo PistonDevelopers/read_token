@@ -41,6 +41,21 @@ pub fn whitespace(chars: &[char], offset: usize) -> Range {
     Range::new(offset, chars.len())
 }
 
+/// Reads string with character escapes.
+pub fn string(chars: &[char], offset: usize) -> Option<Range> {
+    if chars[0] != '"' { return None; }
+    let mut escape = false;
+    for i in 1..chars.len() - 1 {
+        if chars[i] == '\\' { escape = true; continue; }
+        if !escape && chars[i] == '"' { return Some(Range::new(offset, i)) }
+    }
+    if chars[chars.len() - 1] == '"' {
+        return Some(Range::new(offset, chars.len()))
+    } else {
+        return None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,5 +84,20 @@ mod tests {
         let text = "   123".chars().collect::<Vec<char>>();
         let res = whitespace(&text[], 0);
         assert_eq!(res, Range::new(0, 3));
+    }
+
+    #[test]
+    pub fn test_string() {
+        let text = "\"hello\"".chars().collect::<Vec<char>>();
+        let res = string(&text[], 0);
+        assert_eq!(res, Some(Range::new(0, 7)));
+
+        let text = "\"he\\\"llo\"".chars().collect::<Vec<char>>();
+        let res = string(&text[], 0);
+        assert_eq!(res, Some(Range::new(0, 9)));
+
+        let text = "\"he\"llo\"".chars().collect::<Vec<char>>();
+        let res = string(&text[], 0);
+        assert_eq!(res, Some(Range::new(0, 3)));
     }
 }
