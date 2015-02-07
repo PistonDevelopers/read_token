@@ -150,6 +150,7 @@ pub fn number(chars: &[char], offset: usize) -> Option<Range> {
     let mut has_sign = false;
     let mut has_decimal_separator = false;
     let mut has_scientific = false;
+    let mut has_exponent_sign = false;
     for (i, &c) in chars.iter().enumerate() {
         if !has_sign {
             has_sign = true;
@@ -163,6 +164,10 @@ pub fn number(chars: &[char], offset: usize) -> Option<Range> {
         if !has_scientific && (c == 'e' || c == 'E') {
             has_scientific = true;
             continue;
+        }
+        if has_scientific && !has_exponent_sign {
+            has_exponent_sign = true;
+            if c == '+' || c == '-' { continue; }
         }
         if i > 0 { return Some(Range::new(offset, i)) }
         else { return None }
@@ -232,6 +237,7 @@ mod tests {
         let _: f64 = "2.5".parse().unwrap();
         let _: f64 = "2.5e2".parse().unwrap();
         let _: f64 = "2.5E2".parse().unwrap();
+        let _: f64 = "2.5E-2".parse().unwrap();
 
         let text = "20".chars().collect::<Vec<char>>();
         let res = number(&text[], 0);
@@ -256,5 +262,9 @@ mod tests {
         let text = "2.5E2".chars().collect::<Vec<char>>();
         let res = number(&text[], 0);
         assert_eq!(res, Some(Range::new(0, 5)));
+
+        let text = "2.5E-2".chars().collect::<Vec<char>>();
+        let res = number(&text[], 0);
+        assert_eq!(res, Some(Range::new(0, 6)));
     }
 }
