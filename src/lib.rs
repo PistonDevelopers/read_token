@@ -107,15 +107,19 @@ pub fn parse_unicode(
 }
 
 /// Parses string into a real string according to the JSON standard.
+///
 /// Assumes the string starts and ends with double-quotes.
+/// `offset` is the location at the start of the slice.
+/// `next_offset` is the location where the string ends.
 pub fn parse_string(
     chars: &[char],
-    range: Range
+    offset: usize,
+    next_offset: usize,
 ) -> Result<String, ParseStringError> {
     let mut escape = false;
-    let range = range.shrink().unwrap();
-    let mut txt = String::with_capacity(range.length);
-    for (i, &c) in chars[range.iter()].iter().enumerate() {
+    let length = next_offset - offset - 2;
+    let mut txt = String::with_capacity(length);
+    for (i, &c) in chars[1..length + 1].iter().enumerate() {
         if c == '\\' { escape = true; continue; }
         if escape {
             escape = false;
@@ -129,7 +133,7 @@ pub fn parse_string(
                 'r' => '\r',
                 't' => '\t',
                 'u' => {
-                    let offset = range.offset + i;
+                    let offset = offset + 1 + i;
                     match parse_unicode(&chars[offset..], offset) {
                         Ok(x) => x,
                         Err(err) => return Err(err)
@@ -137,7 +141,7 @@ pub fn parse_string(
                 }
                 _ => {
                     return Err(ParseStringError::ExpectedValidEscapeCharacter(
-                        Range::new(range.offset + i, 1)
+                        Range::new(offset + i + 1, 1)
                     ));
                 }
             })
@@ -216,20 +220,20 @@ mod tests {
         let text = "\"hello\"".chars().collect::<Vec<char>>();
         let res = string(&text[], 0);
         assert_eq!(res, Some(Range::new(0, 7)));
-        let txt = parse_string(&text[], res.unwrap()).ok().unwrap();
+        let txt = parse_string(&text[], 0, res.unwrap().next_offset()).ok().unwrap();
         assert_eq!(txt, "hello");
 
         let text = "\"he\\\"llo\"".chars().collect::<Vec<char>>();
         let res = string(&text[], 0);
         assert_eq!(res, Some(Range::new(0, 9)));
-        let txt = parse_string(&text[], res.unwrap());
+        let txt = parse_string(&text[], 0, res.unwrap().next_offset());
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "he\"llo");
 
         let text = "\"he\"llo\"".chars().collect::<Vec<char>>();
         let res = string(&text[], 0);
         assert_eq!(res, Some(Range::new(0, 4)));
-        let txt = parse_string(&text[], res.unwrap());
+        let txt = parse_string(&text[], 0, res.unwrap().next_offset());
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "he");
     }
