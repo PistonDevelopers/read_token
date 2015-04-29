@@ -1,5 +1,4 @@
 #![deny(missing_docs)]
-#![feature(core, unicode)]
 
 //! A simple library to read tokens using look ahead
 
@@ -61,7 +60,7 @@ pub fn string(chars: &[char], offset: usize) -> Option<Range> {
 }
 
 /// Contains errors when parsing a string.
-#[derive(Copy, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum ParseStringError {
     /// Expected four hexadecimals, found less characters
     ExpectedFourHexadecimals(Range),
@@ -191,16 +190,16 @@ mod tests {
     #[test]
     pub fn test_token() {
         let text = "one day, a nice day".chars().collect::<Vec<char>>();
-        let res = token("one", &text[], 0);
+        let res = token("one", &text, 0);
         assert_eq!(res, Some(Range::new(0, 3)));
-        let res = token("two", &text[], 0);
+        let res = token("two", &text, 0);
         assert_eq!(res, None);
     }
 
     #[test]
     pub fn test_until_any_or_whitespace() {
         let text = "one day, a nice day".chars().collect::<Vec<char>>();
-        let res = until_any_or_whitespace(",", &text[], 0);
+        let res = until_any_or_whitespace(",", &text, 0);
         assert_eq!(res, (Range::new(0, 3), None));
         let res = until_any_or_whitespace(",", &text[3..], 3);
         assert_eq!(res, (Range::empty(3), None));
@@ -211,29 +210,29 @@ mod tests {
     #[test]
     pub fn test_whitespace() {
         let text = "   123".chars().collect::<Vec<char>>();
-        let res = whitespace(&text[], 0);
+        let res = whitespace(&text, 0);
         assert_eq!(res, Range::new(0, 3));
     }
 
     #[test]
     pub fn test_string() {
         let text = "\"hello\"".chars().collect::<Vec<char>>();
-        let res = string(&text[], 0);
+        let res = string(&text, 0);
         assert_eq!(res, Some(Range::new(0, 7)));
-        let txt = parse_string(&text[], 0, res.unwrap().next_offset()).ok().unwrap();
+        let txt = parse_string(&text, 0, res.unwrap().next_offset()).ok().unwrap();
         assert_eq!(txt, "hello");
 
         let text = "\"he\\\"llo\"".chars().collect::<Vec<char>>();
-        let res = string(&text[], 0);
+        let res = string(&text, 0);
         assert_eq!(res, Some(Range::new(0, 9)));
-        let txt = parse_string(&text[], 0, res.unwrap().next_offset());
+        let txt = parse_string(&text, 0, res.unwrap().next_offset());
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "he\"llo");
 
         let text = "\"he\"llo\"".chars().collect::<Vec<char>>();
-        let res = string(&text[], 0);
+        let res = string(&text, 0);
         assert_eq!(res, Some(Range::new(0, 4)));
-        let txt = parse_string(&text[], 0, res.unwrap().next_offset());
+        let txt = parse_string(&text, 0, res.unwrap().next_offset());
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "he");
     }
@@ -249,31 +248,31 @@ mod tests {
         let _: f64 = "2.5E-2".parse().unwrap();
 
         let text = "20".chars().collect::<Vec<char>>();
-        let res = number(&text[], 0);
+        let res = number(&text, 0);
         assert_eq!(res, Some(Range::new(0, 2)));
 
         let text = "-20".chars().collect::<Vec<char>>();
-        let res = number(&text[], 0);
+        let res = number(&text, 0);
         assert_eq!(res, Some(Range::new(0, 3)));
 
         let text = "2e2".chars().collect::<Vec<char>>();
-        let res = number(&text[], 0);
+        let res = number(&text, 0);
         assert_eq!(res, Some(Range::new(0, 3)));
 
         let text = "2.5".chars().collect::<Vec<char>>();
-        let res = number(&text[], 0);
+        let res = number(&text, 0);
         assert_eq!(res, Some(Range::new(0, 3)));
 
         let text = "2.5e2".chars().collect::<Vec<char>>();
-        let res = number(&text[], 0);
+        let res = number(&text, 0);
         assert_eq!(res, Some(Range::new(0, 5)));
 
         let text = "2.5E2".chars().collect::<Vec<char>>();
-        let res = number(&text[], 0);
+        let res = number(&text, 0);
         assert_eq!(res, Some(Range::new(0, 5)));
 
         let text = "2.5E-2".chars().collect::<Vec<char>>();
-        let res = number(&text[], 0);
+        let res = number(&text, 0);
         assert_eq!(res, Some(Range::new(0, 6)));
     }
 }
