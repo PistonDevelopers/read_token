@@ -73,6 +73,18 @@ pub enum ParseStringError {
     ExpectedValidEscapeCharacter(Range),
 }
 
+impl ParseStringError {
+    /// Gets the range of the error.
+    pub fn range(&self) -> Range {
+        match self {
+            &ParseStringError::ExpectedFourHexadecimals(r) => r,
+            &ParseStringError::ExpectedHexadecimal(r) => r,
+            &ParseStringError::ExpectedValidUnicode(r) => r,
+            &ParseStringError::ExpectedValidEscapeCharacter(r) => r,
+        }
+    }
+}
+
 /// Parses four unicode characters in hexadecimal format.
 pub fn parse_unicode(
     chars: &[char],
