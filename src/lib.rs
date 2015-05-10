@@ -4,6 +4,8 @@
 
 extern crate range;
 
+use std::fmt::{ Display, Formatter };
+use std::fmt::Error as FormatError;
 use range::Range;
 
 /// Reads an expected token, return `None` if it does not match.
@@ -81,6 +83,21 @@ impl ParseStringError {
             &ParseStringError::ExpectedHexadecimal(r) => r,
             &ParseStringError::ExpectedValidUnicode(r) => r,
             &ParseStringError::ExpectedValidEscapeCharacter(r) => r,
+        }
+    }
+}
+
+impl Display for ParseStringError {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<(), FormatError> {
+        match self {
+            &ParseStringError::ExpectedFourHexadecimals(_) =>
+                fmt.write_str("Expected four hexadecimals xxxx 0-9A-F"),
+            &ParseStringError::ExpectedHexadecimal(_) =>
+                fmt.write_str("Expected hexadecimal 0-9A-F"),
+            &ParseStringError::ExpectedValidUnicode(_) =>
+                fmt.write_str("Expected valid unicode"),
+            &ParseStringError::ExpectedValidEscapeCharacter(_) =>
+                fmt.write_str("Expected valid escape character '\"\\/bfnrtu'"),
         }
     }
 }
