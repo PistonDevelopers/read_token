@@ -51,8 +51,9 @@ pub fn string(chars: &[char], offset: usize) -> Option<Range> {
     for i in 1..chars.len() - 1 {
         if chars[i] == '\\' { escape = true; continue; }
         if !escape && chars[i] == '"' { return Some(Range::new(offset, i + 1)) }
+        if escape { escape = false; }
     }
-    if chars[chars.len() - 1] == '"' {
+    if !escape && chars[chars.len() - 1] == '"' {
         return Some(Range::new(offset, chars.len()))
     } else {
         return None
@@ -235,6 +236,10 @@ mod tests {
         let txt = parse_string(&text, 0, res.unwrap().next_offset());
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "he");
+        
+        let text = "\"hello\\\"".chars().collect::<Vec<char>>();
+        let res = string(&text, 0);
+        assert_eq!(res, None);
     }
 
     #[test]
