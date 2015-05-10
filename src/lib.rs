@@ -61,7 +61,7 @@ pub fn string(chars: &[char], offset: usize) -> Option<Range> {
 }
 
 /// Contains errors when parsing a string.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ParseStringError {
     /// Expected four hexadecimals, found less characters
     ExpectedFourHexadecimals(Range),
