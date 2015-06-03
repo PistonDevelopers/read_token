@@ -18,7 +18,7 @@ pub fn token(token: &str, chars: &[char], offset: usize) -> Option<Range> {
 }
 
 /// Reads a token until any character in string or whitespace.
-/// Returns `(range, None)` if stopping at whitespace.
+/// Returns `(range, None)` if stopping at whitespace or end of characters.
 /// Returns `(range, Some(x))` if stopping at a character.
 pub fn until_any_or_whitespace(
     any: &str,
@@ -29,6 +29,24 @@ pub fn until_any_or_whitespace(
         if c.is_whitespace() {
             return (Range::new(offset, i), None)
         }
+        for (j, b) in any.chars().enumerate() {
+            if c == b {
+                return (Range::new(offset, i), Some(j))
+            }
+        }
+    }
+    (Range::new(offset, chars.len()), None)
+}
+
+/// Reads token until any character in string.
+/// Returns `(range, None)` if stopping at end of characters.
+/// Returns `(range, Some(x))` if stopping at a character.
+pub fn until_any(
+    any: &str,
+    chars: &[char],
+    offset: usize
+) -> (Range, Option<usize>) {
+    for (i, &c) in chars.iter().enumerate() {
         for (j, b) in any.chars().enumerate() {
             if c == b {
                 return (Range::new(offset, i), Some(j))
@@ -235,6 +253,17 @@ mod tests {
         assert_eq!(res, (Range::empty(3), None));
         let res = until_any_or_whitespace(",", &text[4..], 4);
         assert_eq!(res, (Range::new(4, 3), Some(0)));
+    }
+    
+    #[test]
+    pub fn test_until_any() {
+        let text = "one day, a nice day".chars().collect::<Vec<char>>();
+        let res = until_any(",", &text, 0);
+        assert_eq!(res, (Range::new(0, 7), Some(0)));
+        let res = until_any(",", &text[3..], 3);
+        assert_eq!(res, (Range::new(3, 4), Some(0)));
+        let res = until_any(",", &text[8..], 8);
+        assert_eq!(res, (Range::new(8, 11), None));
     }
 
     #[test]
