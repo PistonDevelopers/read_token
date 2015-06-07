@@ -230,6 +230,40 @@ pub fn number(chars: &[char], offset: usize) -> Option<Range> {
     else { return None }
 }
 
+/// Reads a number that can have underscore as visual separator.
+pub fn underscore_number(chars: &[char], offset: usize) -> Option<Range> {
+    let mut has_sign = false;
+    let mut has_decimal_separator = false;
+    let mut has_scientific = false;
+    let mut has_exponent_sign = false;
+    let mut has_digit = false;
+    for (i, &c) in chars.iter().enumerate() {
+        if !has_sign {
+            has_sign = true;
+            if c == '+' || c == '-' { continue; }
+        }
+        if c.is_digit(10) { has_digit = true; continue; }
+        if has_digit && c == '_' { continue; }
+        if !has_decimal_separator && c == '.' {
+            has_decimal_separator = true;
+            continue;
+        }
+        if !has_scientific && (c == 'e' || c == 'E') {
+            has_scientific = true;
+            continue;
+        }
+        if has_scientific && !has_exponent_sign {
+            has_exponent_sign = true;
+            if c == '+' || c == '-' { continue; }
+        }
+        if i > 0 { return Some(Range::new(offset, i)) }
+        else { return None }
+    }
+    if chars.len() > 0 { return Some(Range::new(offset, chars.len())) }
+    else { return None }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,5 +371,56 @@ mod tests {
         let text = "2.5E-2".chars().collect::<Vec<char>>();
         let res = number(&text, 0);
         assert_eq!(res, Some(Range::new(0, 6)));
+    }
+    
+    #[test]
+    pub fn test_underscore_number() {
+        let _: f64 = "20".parse().unwrap();
+        let _: f64 = "-20".parse().unwrap();
+        let _: f64 = "2e2".parse().unwrap();
+        let _: f64 = "2.5".parse().unwrap();
+        let _: f64 = "2.5e2".parse().unwrap();
+        let _: f64 = "2.5E2".parse().unwrap();
+        let _: f64 = "2.5E-2".parse().unwrap();
+
+        let text = "20".chars().collect::<Vec<char>>();
+        let res = underscore_number(&text, 0);
+        assert_eq!(res, Some(Range::new(0, 2)));
+
+        let text = "-20".chars().collect::<Vec<char>>();
+        let res = underscore_number(&text, 0);
+        assert_eq!(res, Some(Range::new(0, 3)));
+
+        let text = "2e2".chars().collect::<Vec<char>>();
+        let res = underscore_number(&text, 0);
+        assert_eq!(res, Some(Range::new(0, 3)));
+
+        let text = "2.5".chars().collect::<Vec<char>>();
+        let res = underscore_number(&text, 0);
+        assert_eq!(res, Some(Range::new(0, 3)));
+
+        let text = "2.5e2".chars().collect::<Vec<char>>();
+        let res = underscore_number(&text, 0);
+        assert_eq!(res, Some(Range::new(0, 5)));
+
+        let text = "2.5E2".chars().collect::<Vec<char>>();
+        let res = underscore_number(&text, 0);
+        assert_eq!(res, Some(Range::new(0, 5)));
+
+        let text = "2.5E-2".chars().collect::<Vec<char>>();
+        let res = underscore_number(&text, 0);
+        assert_eq!(res, Some(Range::new(0, 6)));
+        
+        let text = "_2.5E-2".chars().collect::<Vec<char>>();
+        let res = underscore_number(&text, 0);
+        assert_eq!(res, None);
+        
+        let text = "2_.5E-2".chars().collect::<Vec<char>>();
+        let res = underscore_number(&text, 0);
+        assert_eq!(res, Some(Range::new(0, 7)));
+        
+        let text = "2_000_000.5E-2".chars().collect::<Vec<char>>();
+        let res = underscore_number(&text, 0);
+        assert_eq!(res, Some(Range::new(0, 14)));
     }
 }
