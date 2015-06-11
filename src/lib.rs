@@ -66,7 +66,7 @@ pub fn whitespace(chars: &[char], offset: usize) -> Range {
 
 /// Reads string with character escapes.
 pub fn string(chars: &[char], offset: usize) -> Option<Range> {
-    if chars[0] != '"' { return None; }
+    if chars.len() == 0 || chars[0] != '"' { return None; }
     let mut escape = false;
     for i in 1..chars.len() - 1 {
         if chars[i] == '\\' { escape = true; continue; }
@@ -288,7 +288,7 @@ mod tests {
         let res = until_any_or_whitespace(",", &text[4..], 4);
         assert_eq!(res, (Range::new(4, 3), Some(0)));
     }
-    
+
     #[test]
     pub fn test_until_any() {
         let text = "one day, a nice day".chars().collect::<Vec<char>>();
@@ -328,7 +328,7 @@ mod tests {
         let txt = parse_string(&text, 0, res.unwrap().next_offset());
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "he");
-        
+
         let text = "\"hello\\\"".chars().collect::<Vec<char>>();
         let res = string(&text, 0);
         assert_eq!(res, None);
@@ -372,7 +372,7 @@ mod tests {
         let res = number(&text, 0);
         assert_eq!(res, Some(Range::new(0, 6)));
     }
-    
+
     #[test]
     pub fn test_underscore_number() {
         let _: f64 = "20".parse().unwrap();
@@ -410,15 +410,15 @@ mod tests {
         let text = "2.5E-2".chars().collect::<Vec<char>>();
         let res = underscore_number(&text, 0);
         assert_eq!(res, Some(Range::new(0, 6)));
-        
+
         let text = "_2.5E-2".chars().collect::<Vec<char>>();
         let res = underscore_number(&text, 0);
         assert_eq!(res, None);
-        
+
         let text = "2_.5E-2".chars().collect::<Vec<char>>();
         let res = underscore_number(&text, 0);
         assert_eq!(res, Some(Range::new(0, 7)));
-        
+
         let text = "2_000_000.5E-2".chars().collect::<Vec<char>>();
         let res = underscore_number(&text, 0);
         assert_eq!(res, Some(Range::new(0, 14)));
