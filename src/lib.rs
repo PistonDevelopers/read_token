@@ -247,16 +247,31 @@ pub fn number(
 }
 
 /// Error when parsing number.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ParseNumberError {
     /// The number was empty.
-    Empty,
+    ExpectedDigits,
     /// The number is of invalid format.
     Invalid,
     /// The number overflowed to infinity.
-    Infinity,
+    OverflowInfinity,
     /// The number overflowed to negative infinity.
-    NegInfinity,
+    OverflowNegInfinity,
+}
+
+impl Display for ParseNumberError {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<(), FormatError> {
+        match self {
+            &ParseNumberError::ExpectedDigits =>
+                fmt.write_str("Expected digits"),
+            &ParseNumberError::Invalid =>
+                fmt.write_str("Expected valid number format, for example `20.3e-4`"),
+            &ParseNumberError::OverflowInfinity =>
+                fmt.write_str("Number overflowed toward positive infinity"),
+            &ParseNumberError::OverflowNegInfinity =>
+                fmt.write_str("Number overflowed toward negative infinity"),
+        }
+    }
 }
 
 /// Parses number.
@@ -284,9 +299,11 @@ pub fn parse_number(
 
     let radix: u32 = 10;
     let (is_positive, src) =  match slice_shift_char(src) {
-        None             => return Err(ParseNumberError::Empty),
+        None => {
+            return Err(ParseNumberError::ExpectedDigits);
+        }
         Some(('-', src)) if src.len() == 0 => {
-            return Err(ParseNumberError::Empty);
+            return Err(ParseNumberError::ExpectedDigits);
         }
         Some(('-', src)) => (false, src),
         Some((_, _))     => (true,  src),
@@ -319,15 +336,15 @@ pub fn parse_number(
                 // if we've not seen any non-zero digits.
                 if prev_sig != 0.0 {
                     if is_positive && sig <= prev_sig
-                        { return Err(ParseNumberError::Infinity); }
+                        { return Err(ParseNumberError::OverflowInfinity); }
                     if !is_positive && sig >= prev_sig
-                        { return Err(ParseNumberError::NegInfinity); }
+                        { return Err(ParseNumberError::OverflowNegInfinity); }
 
                     // Detect overflow by reversing the shift-and-add process
                     if is_positive && (prev_sig != (sig - digit as f64) / radix as f64)
-                        { return Err(ParseNumberError::Infinity); }
+                        { return Err(ParseNumberError::OverflowInfinity); }
                     if !is_positive && (prev_sig != (sig + digit as f64) / radix as f64)
-                        { return Err(ParseNumberError::NegInfinity); }
+                        { return Err(ParseNumberError::OverflowNegInfinity); }
                 }
                 prev_sig = sig;
             },
@@ -364,9 +381,9 @@ pub fn parse_number(
                     };
                     // Detect overflow by comparing to last value
                     if is_positive && sig < prev_sig
-                        { return Err(ParseNumberError::Infinity); }
+                        { return Err(ParseNumberError::OverflowInfinity); }
                     if !is_positive && sig > prev_sig
-                        { return Err(ParseNumberError::NegInfinity); }
+                        { return Err(ParseNumberError::OverflowNegInfinity); }
                     prev_sig = sig;
                 },
                 None => match c {
