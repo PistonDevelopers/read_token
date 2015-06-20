@@ -200,6 +200,7 @@ pub fn parse_string(
 }
 
 /// The settings for reading numbers.
+#[derive(Copy, Clone, Debug)]
 pub struct NumberSettings {
     /// Whether to allow underscore in number.
     pub allow_underscore: bool,
@@ -243,6 +244,151 @@ pub fn number(
     }
     if chars.len() > 0 { return Some(Range::new(offset, chars.len())) }
     else { return None }
+}
+
+/// Error when parsing number.
+#[derive(Copy, Clone, Debug)]
+pub enum ParseNumberError {
+    /// The number was empty.
+    Empty,
+    /// The number is of invalid format.
+    Invalid,
+    /// The number overflowed to infinity.
+    Infinity,
+    /// The number overflowed to negative infinity.
+    NegInfinity,
+}
+
+/// Parses number.
+pub fn parse_number(src: &str) -> Result<f64, ParseNumberError> {
+    fn slice_shift_char(src: &str) -> Option<(char, &str)> {
+        src.chars().nth(0).map(|ch| (ch, &src[1..]))
+    }
+
+    let radix: u32 = 10;
+    let (is_positive, src) =  match slice_shift_char(src) {
+        None             => return Err(ParseNumberError::Empty),
+        Some(('-', ""))  => return Err(ParseNumberError::Empty),
+        Some(('-', src)) => (false, src),
+        Some((_, _))     => (true,  src),
+    };
+
+    // The significand to accumulate
+    let mut sig = if is_positive { 0.0 } else { -0.0 };
+    // Necessary to detect overflow
+    let mut prev_sig = sig;
+    let mut cs = src.chars().enumerate();
+    // Exponent prefix and exponent index offset
+    let mut exp_info = None::<(char, usize)>;
+
+    // Parse the integer part of the significand
+    for (i, c) in cs.by_ref() {
+        match c.to_digit(radix) {
+            Some(digit) => {
+                // shift significand one digit left
+                sig = sig * (radix as f64);
+
+                // add/subtract current digit depending on sign
+                if is_positive {
+                    sig = sig + ((digit as isize) as f64);
+                } else {
+                    sig = sig - ((digit as isize) as f64);
+                }
+
+                // Detect overflow by comparing to last value, except
+                // if we've not seen any non-zero digits.
+                if prev_sig != 0.0 {
+                    if is_positive && sig <= prev_sig
+                        { return Err(ParseNumberError::Infinity); }
+                    if !is_positive && sig >= prev_sig
+                        { return Err(ParseNumberError::NegInfinity); }
+
+                    // Detect overflow by reversing the shift-and-add process
+                    if is_positive && (prev_sig != (sig - digit as f64) / radix as f64)
+                        { return Err(ParseNumberError::Infinity); }
+                    if !is_positive && (prev_sig != (sig + digit as f64) / radix as f64)
+                        { return Err(ParseNumberError::NegInfinity); }
+                }
+                prev_sig = sig;
+            },
+            None => match c {
+                'e' | 'E' | 'p' | 'P' => {
+                    exp_info = Some((c, i + 1));
+                    break;  // start of exponent
+                },
+                '.' => {
+                    break;  // start of fractional part
+                },
+                _ => {
+                    return Err(ParseNumberError::Invalid);
+                },
+            },
+        }
+    }
+
+    // If we are not yet at the exponent parse the fractional
+    // part of the significand
+    if exp_info.is_none() {
+        let mut power = 1.0;
+        for (i, c) in cs.by_ref() {
+            match c.to_digit(radix) {
+                Some(digit) => {
+                    // Decrease power one order of magnitude
+                    power = power / (radix as f64);
+                    // add/subtract current digit depending on sign
+                    sig = if is_positive {
+                        sig + (digit as f64) * power
+                    } else {
+                        sig - (digit as f64) * power
+                    };
+                    // Detect overflow by comparing to last value
+                    if is_positive && sig < prev_sig
+                        { return Err(ParseNumberError::Infinity); }
+                    if !is_positive && sig > prev_sig
+                        { return Err(ParseNumberError::NegInfinity); }
+                    prev_sig = sig;
+                },
+                None => match c {
+                    'e' | 'E' | 'p' | 'P' => {
+                        exp_info = Some((c, i + 1));
+                        break; // start of exponent
+                    },
+                    _ => {
+                        return Err(ParseNumberError::Invalid);
+                    },
+                },
+            }
+        }
+    }
+
+    // Parse and calculate the exponent
+    let exp = match exp_info {
+        Some((c, offset)) => {
+            let base = match c {
+                'E' | 'e' if radix == 10 => 10.0,
+                _ => return Err(ParseNumberError::Invalid),
+            };
+
+            // Parse the exponent as decimal integer
+            let src = &src[offset..];
+            let (is_positive, exp) = match slice_shift_char(src) {
+                Some(('-', src)) => (false, src.parse::<usize>()),
+                Some(('+', src)) => (true,  src.parse::<usize>()),
+                Some((_, _))     => (true,  src.parse::<usize>()),
+                None             => return Err(ParseNumberError::Invalid),
+            };
+
+            match (is_positive, exp) {
+                (true,  Ok(exp)) => f64::powi(base, exp as i32),
+                (false, Ok(exp)) => 1.0 / base.powi(exp as i32),
+                (_, Err(_))      => return Err(ParseNumberError::Invalid),
+            }
+        },
+        None => 1.0, // no exponent
+    };
+
+    Ok(sig * exp)
+
 }
 
 #[cfg(test)]
@@ -319,13 +465,20 @@ mod tests {
     pub fn test_number() {
         let settings = NumberSettings { allow_underscore: false };
 
-        let _: f64 = "20".parse().unwrap();
-        let _: f64 = "-20".parse().unwrap();
-        let _: f64 = "2e2".parse().unwrap();
-        let _: f64 = "2.5".parse().unwrap();
-        let _: f64 = "2.5e2".parse().unwrap();
-        let _: f64 = "2.5E2".parse().unwrap();
-        let _: f64 = "2.5E-2".parse().unwrap();
+        let res: f64 = parse_number("20").unwrap();
+        assert_eq!(res, 20.0);
+        let res: f64 = parse_number("-20").unwrap();
+        assert_eq!(res, -20.0);
+        let res: f64 = parse_number("2e2").unwrap();
+        assert_eq!(res, 2e2);
+        let res: f64 = parse_number("2.5").unwrap();
+        assert_eq!(res, 2.5);
+        let res: f64 = "2.5e2".parse().unwrap();
+        assert_eq!(res, 2.5e2);
+        let res: f64 = parse_number("2.5E2").unwrap();
+        assert_eq!(res, 2.5E2);
+        let res: f64 = parse_number("2.5E-2").unwrap();
+        assert_eq!(res, 2.5E-2);
 
         let text = "20".chars().collect::<Vec<char>>();
         let res = number(&settings, &text, 0);
