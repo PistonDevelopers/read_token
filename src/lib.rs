@@ -279,10 +279,13 @@ pub fn parse_number(
     settings: &NumberSettings,
     src: &[char]
 ) -> Result<f64, ParseNumberError> {
+    #[inline(always)]
     fn slice_shift_char(src: &[char]) -> Option<(char, &[char])> {
-        src.iter().nth(0).map(|&ch| (ch, &src[1..]))
+        if src.len() == 0 { None }
+        else { Some((src[0], &src[1..])) }
     }
 
+    #[inline(always)]
     fn parse_u64(settings: &NumberSettings, src: &[char]) -> Result<u64, ()> {
         let mut res: u64 = 0;
         for c in src {
