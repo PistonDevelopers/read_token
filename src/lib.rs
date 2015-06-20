@@ -530,13 +530,22 @@ mod tests {
     pub fn test_underscore_number() {
         let settings = NumberSettings { allow_underscore: true };
 
-        let _: f64 = "20".parse().unwrap();
-        let _: f64 = "-20".parse().unwrap();
-        let _: f64 = "2e2".parse().unwrap();
-        let _: f64 = "2.5".parse().unwrap();
-        let _: f64 = "2.5e2".parse().unwrap();
-        let _: f64 = "2.5E2".parse().unwrap();
-        let _: f64 = "2.5E-2".parse().unwrap();
+        let to_chars = |s: &str| s.chars().collect::<Vec<char>>();
+
+        let res: f64 = parse_number(&to_chars("20")).unwrap();
+        assert_eq!(res, 20.0);
+        let res: f64 = parse_number(&to_chars("-20")).unwrap();
+        assert_eq!(res, -20.0);
+        let res: f64 = parse_number(&to_chars("2e2")).unwrap();
+        assert_eq!(res, 2e2);
+        let res: f64 = parse_number(&to_chars("2.5")).unwrap();
+        assert_eq!(res, 2.5);
+        let res: f64 = parse_number(&to_chars("2.5e2")).unwrap();
+        assert_eq!(res, 2.5e2);
+        let res: f64 = parse_number(&to_chars("2.5E2")).unwrap();
+        assert_eq!(res, 2.5E2);
+        let res: f64 = parse_number(&to_chars("2.5E-2")).unwrap();
+        assert_eq!(res, 2.5E-2);
 
         let text = "20".chars().collect::<Vec<char>>();
         let res = number(&settings, &text, 0);
