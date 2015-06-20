@@ -288,16 +288,22 @@ pub fn parse_number(
     #[inline(always)]
     fn parse_u64(settings: &NumberSettings, src: &[char]) -> Result<u64, ()> {
         let mut res: u64 = 0;
-        for c in src {
-            if settings.allow_underscore && *c == '_' { continue; }
+        for &c in src {
+            if settings.allow_underscore && c == '_' { continue; }
             res *= 10;
-            if let Some(digit) = c.to_digit(10) {
+            if let Some(digit) = to_digit(c) {
                 res += digit as u64;
             } else {
                 return Err(())
             }
         }
         Ok(res)
+    }
+
+    #[inline(always)]
+    fn to_digit(c: char) -> Option<u32> {
+        if c >= '0' && c <= '9' { Some(c as u32 - '0' as u32) }
+        else { None }
     }
 
     let radix: u32 = 10;
@@ -323,7 +329,7 @@ pub fn parse_number(
     // Parse the integer part of the significand
     for (i, &c) in cs.by_ref() {
         if settings.allow_underscore && c == '_' { continue; }
-        match c.to_digit(radix) {
+        match to_digit(c) {
             Some(digit) => {
                 // shift significand one digit left
                 sig = sig * (radix as f64);
@@ -372,7 +378,7 @@ pub fn parse_number(
         let mut power = 1.0;
         for (i, &c) in cs.by_ref() {
             if settings.allow_underscore && c == '_' { continue; }
-            match c.to_digit(radix) {
+            match to_digit(c) {
                 Some(digit) => {
                     // Decrease power one order of magnitude
                     power = power / (radix as f64);
