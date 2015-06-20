@@ -260,15 +260,30 @@ pub enum ParseNumberError {
 }
 
 /// Parses number.
-pub fn parse_number(src: &str) -> Result<f64, ParseNumberError> {
-    fn slice_shift_char(src: &str) -> Option<(char, &str)> {
-        src.chars().nth(0).map(|ch| (ch, &src[1..]))
+pub fn parse_number(src: &[char]) -> Result<f64, ParseNumberError> {
+    fn slice_shift_char(src: &[char]) -> Option<(char, &[char])> {
+        src.iter().nth(0).map(|&ch| (ch, &src[1..]))
+    }
+
+    fn parse_u64(src: &[char]) -> Result<u64, ()> {
+        let mut res: u64 = 0;
+        for c in src {
+            res *= 10;
+            if let Some(digit) = c.to_digit(10) {
+                res += digit as u64;
+            } else {
+                return Err(())
+            }
+        }
+        Ok(res)
     }
 
     let radix: u32 = 10;
     let (is_positive, src) =  match slice_shift_char(src) {
         None             => return Err(ParseNumberError::Empty),
-        Some(('-', ""))  => return Err(ParseNumberError::Empty),
+        Some(('-', src)) if src.len() == 0 => {
+            return Err(ParseNumberError::Empty);
+        }
         Some(('-', src)) => (false, src),
         Some((_, _))     => (true,  src),
     };
@@ -277,12 +292,12 @@ pub fn parse_number(src: &str) -> Result<f64, ParseNumberError> {
     let mut sig = if is_positive { 0.0 } else { -0.0 };
     // Necessary to detect overflow
     let mut prev_sig = sig;
-    let mut cs = src.chars().enumerate();
+    let mut cs = src.iter().enumerate();
     // Exponent prefix and exponent index offset
     let mut exp_info = None::<(char, usize)>;
 
     // Parse the integer part of the significand
-    for (i, c) in cs.by_ref() {
+    for (i, &c) in cs.by_ref() {
         match c.to_digit(radix) {
             Some(digit) => {
                 // shift significand one digit left
@@ -330,7 +345,7 @@ pub fn parse_number(src: &str) -> Result<f64, ParseNumberError> {
     // part of the significand
     if exp_info.is_none() {
         let mut power = 1.0;
-        for (i, c) in cs.by_ref() {
+        for (i, &c) in cs.by_ref() {
             match c.to_digit(radix) {
                 Some(digit) => {
                     // Decrease power one order of magnitude
@@ -372,9 +387,9 @@ pub fn parse_number(src: &str) -> Result<f64, ParseNumberError> {
             // Parse the exponent as decimal integer
             let src = &src[offset..];
             let (is_positive, exp) = match slice_shift_char(src) {
-                Some(('-', src)) => (false, src.parse::<usize>()),
-                Some(('+', src)) => (true,  src.parse::<usize>()),
-                Some((_, _))     => (true,  src.parse::<usize>()),
+                Some(('-', src)) => (false, parse_u64(src)),
+                Some(('+', src)) => (true,  parse_u64(src)),
+                Some((_, _))     => (true,  parse_u64(src)),
                 None             => return Err(ParseNumberError::Invalid),
             };
 
@@ -465,19 +480,21 @@ mod tests {
     pub fn test_number() {
         let settings = NumberSettings { allow_underscore: false };
 
-        let res: f64 = parse_number("20").unwrap();
+        let to_chars = |s: &str| s.chars().collect::<Vec<char>>();
+
+        let res: f64 = parse_number(&to_chars("20")).unwrap();
         assert_eq!(res, 20.0);
-        let res: f64 = parse_number("-20").unwrap();
+        let res: f64 = parse_number(&to_chars("-20")).unwrap();
         assert_eq!(res, -20.0);
-        let res: f64 = parse_number("2e2").unwrap();
+        let res: f64 = parse_number(&to_chars("2e2")).unwrap();
         assert_eq!(res, 2e2);
-        let res: f64 = parse_number("2.5").unwrap();
+        let res: f64 = parse_number(&to_chars("2.5")).unwrap();
         assert_eq!(res, 2.5);
         let res: f64 = "2.5e2".parse().unwrap();
         assert_eq!(res, 2.5e2);
-        let res: f64 = parse_number("2.5E2").unwrap();
+        let res: f64 = parse_number(&to_chars("2.5E2")).unwrap();
         assert_eq!(res, 2.5E2);
-        let res: f64 = parse_number("2.5E-2").unwrap();
+        let res: f64 = parse_number(&to_chars("2.5E-2")).unwrap();
         assert_eq!(res, 2.5E-2);
 
         let text = "20".chars().collect::<Vec<char>>();
