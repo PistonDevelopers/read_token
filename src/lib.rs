@@ -10,7 +10,7 @@ use range::Range;
 
 /// Reads an expected token, return `None` if it does not match.
 pub fn token(token: &str, chars: &[char], offset: usize) -> Option<Range> {
-    if chars.len() < token.len() { return None; }
+    if chars.len() < token.chars().count() { return None; }
     for (i, c) in token.chars().enumerate() {
         if c != chars[i] { return None; }
     }
