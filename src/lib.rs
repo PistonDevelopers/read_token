@@ -10,11 +10,12 @@ use range::Range;
 
 /// Reads an expected token, return `None` if it does not match.
 pub fn token(token: &str, chars: &[char], offset: usize) -> Option<Range> {
-    if chars.len() < token.chars().count() { return None; }
+    let n = token.chars().count();
+    if chars.len() < n { return None; }
     for (i, c) in token.chars().enumerate() {
         if c != chars[i] { return None; }
     }
-    return Some(Range::new(offset, token.len()))
+    return Some(Range::new(offset, n))
 }
 
 /// Reads a token until any character in string or whitespace.
@@ -450,6 +451,10 @@ mod tests {
         assert_eq!(res, Some(Range::new(0, 3)));
         let res = token("two", &text, 0);
         assert_eq!(res, None);
+
+        let text = "°a".chars().collect::<Vec<char>>();
+        let res = token("°a", &text, 0);
+        assert_eq!(res, Some(Range::new(0, 2)));
     }
 
     #[test]
