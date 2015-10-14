@@ -85,37 +85,25 @@ pub fn string(chars: &[char], offset: usize) -> Option<Range> {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ParseStringError {
     /// Expected four hexadecimals, found less characters
-    ExpectedFourHexadecimals(Range),
+    ExpectedFourHexadecimals,
     /// Expected character `0-9a-fA-F`
-    ExpectedHexadecimal(Range),
+    ExpectedHexadecimal,
     /// Found four hexadecimals, but not an invalid unicode character
-    ExpectedValidUnicode(Range),
+    ExpectedValidUnicode,
     /// A character escape `\x` is invalid
-    ExpectedValidEscapeCharacter(Range),
-}
-
-impl ParseStringError {
-    /// Gets the range of the error.
-    pub fn range(&self) -> Range {
-        match self {
-            &ParseStringError::ExpectedFourHexadecimals(r) => r,
-            &ParseStringError::ExpectedHexadecimal(r) => r,
-            &ParseStringError::ExpectedValidUnicode(r) => r,
-            &ParseStringError::ExpectedValidEscapeCharacter(r) => r,
-        }
-    }
+    ExpectedValidEscapeCharacter,
 }
 
 impl Display for ParseStringError {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), FormatError> {
         match self {
-            &ParseStringError::ExpectedFourHexadecimals(_) =>
+            &ParseStringError::ExpectedFourHexadecimals =>
                 fmt.write_str("Expected four hexadecimals xxxx 0-9A-F"),
-            &ParseStringError::ExpectedHexadecimal(_) =>
+            &ParseStringError::ExpectedHexadecimal =>
                 fmt.write_str("Expected hexadecimal 0-9A-F"),
-            &ParseStringError::ExpectedValidUnicode(_) =>
+            &ParseStringError::ExpectedValidUnicode =>
                 fmt.write_str("Expected valid unicode"),
-            &ParseStringError::ExpectedValidEscapeCharacter(_) =>
+            &ParseStringError::ExpectedValidEscapeCharacter =>
                 fmt.write_str("Expected valid escape character '\"\\/bfnrtu'"),
         }
     }
@@ -125,13 +113,12 @@ impl Display for ParseStringError {
 pub fn parse_unicode(
     chars: &[char],
     offset: usize
-) -> Result<char, ParseStringError> {
+) -> Result<char, Range<ParseStringError>> {
     use std::char;
 
     if chars.len() < 4 {
-        return Err(ParseStringError::ExpectedFourHexadecimals(
-            Range::new(offset, chars.len())
-        ));
+        return Err(Range::new(offset, chars.len())
+            .wrap(ParseStringError::ExpectedFourHexadecimals));
     }
 
     let mut u: [u32; 4] = [0; 4];
@@ -139,18 +126,16 @@ pub fn parse_unicode(
         match chars[i].to_digit(16) {
             Some(x) => *c = x as u32,
             None => {
-                return Err(ParseStringError::ExpectedHexadecimal(
-                    Range::new(offset + i, 1)
-                ))
+                return Err(Range::new(offset + i, 1)
+                    .wrap(ParseStringError::ExpectedHexadecimal))
             }
         }
     }
     let code = (u[0] << 12) | (u[1] << 8) | (u[2] << 4) | u[3];
     match char::from_u32(code) {
         Some(x) => Ok(x),
-        None => Err(ParseStringError::ExpectedValidUnicode(
-            Range::new(offset, 4)
-        ))
+        None => Err(Range::new(offset, 4)
+            .wrap(ParseStringError::ExpectedValidUnicode))
     }
 }
 
@@ -163,7 +148,7 @@ pub fn parse_string(
     chars: &[char],
     offset: usize,
     next_offset: usize,
-) -> Result<String, ParseStringError> {
+) -> Result<String, Range<ParseStringError>> {
     let mut escape = false;
     let length = next_offset - offset - 2;
     let mut txt = String::with_capacity(length);
@@ -188,9 +173,8 @@ pub fn parse_string(
                     }
                 }
                 _ => {
-                    return Err(ParseStringError::ExpectedValidEscapeCharacter(
-                        Range::new(offset + i + 1, 1)
-                    ));
+                    return Err(Range::new(offset + i + 1, 1)
+                        .wrap(ParseStringError::ExpectedValidEscapeCharacter));
                 }
             })
         } else {
