@@ -212,7 +212,7 @@ impl<'a> ReadToken<'a> {
     }
 
     /// Parses four unicode characters in hexadecimal format.
-    pub fn parse_unicode(&self) -> Result<char, Range<ParseStringError>> {
+    fn parse_unicode(&self) -> Result<char, Range<ParseStringError>> {
         use std::char;
 
         if self.chars.len() < 4 {
