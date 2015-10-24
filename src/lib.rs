@@ -250,12 +250,12 @@ impl<'a> ReadToken<'a> {
     /// Parses string into a real string according to the JSON standard.
     ///
     /// Assumes the string starts and ends with double-quotes.
-    /// `offset` is the location at the start of the slice.
-    /// `next_offset` is the location where the string ends.
-    pub fn parse_string(&self, next_offset: usize)
+    /// `n` is the number of characters to read and must be at least 2,
+    /// because the string is surrounded by quotes.
+    pub fn parse_string(&self, n: usize)
     -> Result<String, Range<ParseStringError>> {
         let mut escape = false;
-        let length = next_offset - self.offset - 2;
+        let length = n - 2;
         let mut txt = String::with_capacity(length);
         for (i, &c) in self.chars[1..length + 1].iter().enumerate() {
             if c == '\\' { escape = true; continue; }
@@ -290,8 +290,8 @@ impl<'a> ReadToken<'a> {
         Ok(txt)
     }
 
-    /// Parses number.
-    pub fn parse_number(&self, settings: &NumberSettings)
+    /// Parses number from n characters.
+    pub fn parse_number(&self, settings: &NumberSettings, n: usize)
     -> Result<f64, ParseNumberError> {
         #[inline(always)]
         fn slice_shift_char(src: &[char]) -> Option<(char, &[char])> {
@@ -321,7 +321,8 @@ impl<'a> ReadToken<'a> {
         }
 
         let radix: u32 = 10;
-        let (is_positive, src) =  match slice_shift_char(self.chars) {
+        let src = &self.chars[..n];
+        let (is_positive, src) =  match slice_shift_char(src) {
             None => {
                 return Err(ParseNumberError::ExpectedDigits);
             }
@@ -329,7 +330,7 @@ impl<'a> ReadToken<'a> {
                 return Err(ParseNumberError::ExpectedDigits);
             }
             Some(('-', src)) => (false, src),
-            Some((_, _))     => (true,  self.chars),
+            Some((_, _))     => (true,  src),
         };
 
         // The significand to accumulate
@@ -568,23 +569,21 @@ mod tests {
         let text = "\"hello\"".chars().collect::<Vec<char>>();
         let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, Some(Range::new(0, 7)));
-        let txt = ReadToken::new(&text, 0)
-            .parse_string(res.unwrap().next_offset()).ok().unwrap();
+        let txt = ReadToken::new(&text, 0).parse_string(res.unwrap().length);
+        let txt = txt.ok().unwrap();
         assert_eq!(txt, "hello");
 
         let text = "\"he\\\"llo\"".chars().collect::<Vec<char>>();
         let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, Some(Range::new(0, 9)));
-        let txt = ReadToken::new(&text, 0)
-            .parse_string(res.unwrap().next_offset());
+        let txt = ReadToken::new(&text, 0).parse_string(res.unwrap().length);
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "he\"llo");
 
         let text = "\"he\"llo\"".chars().collect::<Vec<char>>();
         let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, Some(Range::new(0, 4)));
-        let txt = ReadToken::new(&text, 0)
-            .parse_string(res.unwrap().next_offset());
+        let txt = ReadToken::new(&text, 0).parse_string(res.unwrap().length);
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "he");
 
@@ -599,25 +598,31 @@ mod tests {
 
         let to_chars = |s: &str| s.chars().collect::<Vec<char>>();
 
-        let res: f64 = ReadToken::new(&to_chars("20"), 0)
-            .parse_number(&settings).unwrap();
+        let chars = to_chars("20");
+        let res: f64 = ReadToken::new(&chars, 0)
+            .parse_number(&settings, chars.len()).unwrap();
         assert_eq!(res, 20.0);
-        let res: f64 = ReadToken::new(&to_chars("-20"), 0)
-            .parse_number(&settings).unwrap();
+        let chars = to_chars("-20");
+        let res: f64 = ReadToken::new(&chars, 0)
+            .parse_number(&settings, chars.len()).unwrap();
         assert_eq!(res, -20.0);
-        let res: f64 = ReadToken::new(&to_chars("2e2"), 0)
-            .parse_number(&settings).unwrap();
+        let chars = to_chars("2e2");
+        let res: f64 = ReadToken::new(&chars, 0)
+            .parse_number(&settings, chars.len()).unwrap();
         assert_eq!(res, 2e2);
-        let res: f64 = ReadToken::new(&to_chars("2.5"), 0)
-            .parse_number(&settings).unwrap();
+        let chars = to_chars("2.5");
+        let res: f64 = ReadToken::new(&chars, 0)
+            .parse_number(&settings, chars.len()).unwrap();
         assert_eq!(res, 2.5);
         let res: f64 = "2.5e2".parse().unwrap();
         assert_eq!(res, 2.5e2);
-        let res: f64 = ReadToken::new(&to_chars("2.5E2"), 0)
-            .parse_number(&settings).unwrap();
+        let chars = to_chars("2.5E2");
+        let res: f64 = ReadToken::new(&chars, 0)
+            .parse_number(&settings, chars.len()).unwrap();
         assert_eq!(res, 2.5E2);
-        let res: f64 = ReadToken::new(&to_chars("2.5E-2"), 0)
-            .parse_number(&settings).unwrap();
+        let chars = to_chars("2.5E-2");
+        let res: f64 = ReadToken::new(&chars, 0)
+            .parse_number(&settings, chars.len()).unwrap();
         assert_eq!(res, 2.5E-2);
 
         let text = "20".chars().collect::<Vec<char>>();
@@ -655,26 +660,33 @@ mod tests {
 
         let to_chars = |s: &str| s.chars().collect::<Vec<char>>();
 
-        let res: f64 = ReadToken::new(&to_chars("2_0"), 0)
-            .parse_number(&settings, ).unwrap();
+        let chars = to_chars("2_0");
+        let res: f64 = ReadToken::new(&chars, 0)
+            .parse_number(&settings, chars.len()).unwrap();
         assert_eq!(res, 20.0);
-        let res: f64 = ReadToken::new(&to_chars("-2_0"), 0)
-            .parse_number(&settings).unwrap();
+        let chars = to_chars("-2_0");
+        let res: f64 = ReadToken::new(&chars, 0)
+            .parse_number(&settings, chars.len()).unwrap();
         assert_eq!(res, -20.0);
-        let res: f64 = ReadToken::new(&to_chars("2_e2_"), 0)
-            .parse_number(&settings).unwrap();
+        let chars = to_chars("2_e2_");
+        let res: f64 = ReadToken::new(&chars, 0)
+            .parse_number(&settings, chars.len()).unwrap();
         assert_eq!(res, 2e2);
-        let res: f64 = ReadToken::new(&to_chars("2_.5_"), 0)
-            .parse_number(&settings).unwrap();
+        let chars = to_chars("2_.5_");
+        let res: f64 = ReadToken::new(&chars, 0)
+            .parse_number(&settings, chars.len()).unwrap();
         assert_eq!(res, 2.5);
-        let res: f64 = ReadToken::new(&to_chars("2_.5_e2_"), 0)
-            .parse_number(&settings).unwrap();
+        let chars = to_chars("2_.5_e2_");
+        let res: f64 = ReadToken::new(&chars, 0)
+            .parse_number(&settings, chars.len()).unwrap();
         assert_eq!(res, 2.5e2);
-        let res: f64 = ReadToken::new(&to_chars("2_.5_E2_"), 0)
-            .parse_number(&settings).unwrap();
+        let chars = to_chars("2_.5_E2_");
+        let res: f64 = ReadToken::new(&chars, 0)
+            .parse_number(&settings, chars.len()).unwrap();
         assert_eq!(res, 2.5E2);
-        let res: f64 = ReadToken::new(&to_chars("2_.5_E-2_"), 0)
-            .parse_number(&settings).unwrap();
+        let chars = to_chars("2_.5_E-2_");
+        let res: f64 = ReadToken::new(&chars, 0)
+            .parse_number(&settings, chars.len()).unwrap();
         assert_eq!(res, 2.5E-2);
 
         let text = "20".chars().collect::<Vec<char>>();
