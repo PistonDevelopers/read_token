@@ -33,7 +33,89 @@ impl<'a> ReadToken<'a> {
         }
     }
 
+    /// Take n characters for separate reading.
+    pub fn take(&self, n: usize) -> ReadToken<'a> {
+        ReadToken {
+            chars: &self.chars[..n],
+            offset: self.offset
+        }
+    }
+
+    /// Reads a raw string.
+    pub fn raw_string(&self, n: usize) -> String {
+        let mut text = String::with_capacity(n);
+        for c in self.chars.iter().take(n) {
+            text.push(*c);
+        }
+        text
+    }
+
+    /// Returns whether a range of characters ended with newline character
+    /// followed by whitespace.
+    fn ended_with_newline(&self, range: Range) -> bool {
+        let end = range.next_offset() - self.offset;
+        let last_new_line = self.chars[..end].iter()
+            .rev()
+            .take_while(|&c| *c != '\n' && c.is_whitespace())
+            .count();
+        if end < last_new_line + 1
+        || self.chars[end - last_new_line - 1] != '\n' { false }
+        else { true }
+    }
+
+    /// Read lines until closure returns `None`.
+    /// Returns `Ok(range)` of the successful read lines.
+    /// Returns `Err(range)` when expected new line.
+    pub fn lines<F>(&self, mut f: F) -> Result<Range, Range>
+        where F: FnMut(&ReadToken) -> Option<Range>
+    {
+        let mut read_token = *self;
+        let mut new_lines = true;
+        loop {
+            let len = read_token.chars.iter()
+                .take_while(|&c| *c != '\n' && c.is_whitespace())
+                .count();
+            if len == read_token.chars.len() {
+                read_token.offset += len;
+                break;
+            } else if read_token.chars[len] == '\n' {
+                read_token.chars = &read_token.chars[len + 1..];
+                read_token.offset += len + 1;
+                new_lines |= true;
+            } else {
+                if new_lines {
+                    match f(&read_token) {
+                        None => { break; }
+                        Some(range) => {
+                            // Find whether a new line occured at the end.
+                            // If it did, we do not require a new line before
+                            // calling the closure.
+                            new_lines = read_token.ended_with_newline(range);
+                            read_token = read_token.consume(range);
+                        }
+                    }
+                } else {
+                    return Err(Range::empty(read_token.offset));
+                }
+            }
+        }
+        Ok(read_token.subtract(self))
+    }
+
+    /// Returns the difference in offset.
+    #[inline(always)]
+    pub fn subtract(&self, rhs: &Self) -> Range {
+        Range::new(rhs.offset, self.offset - rhs.offset)
+    }
+
+    /// Returns an empty range at current offset.
+    #[inline(always)]
+    pub fn start(&self) -> Range {
+        Range::empty(self.offset)
+    }
+
     /// Peek a number of characters ahead.
+    #[inline(always)]
     pub fn peek(&self, n: usize) -> Range {
         Range::new(self.offset, n)
     }
