@@ -32,14 +32,6 @@ impl<'a> ReadToken<'a> {
         }
     }
 
-    /// Take n characters for separate reading.
-    pub fn take(&self, n: usize) -> ReadToken<'a> {
-        ReadToken {
-            chars: &self.chars[..n],
-            offset: self.offset
-        }
-    }
-
     /// Reads a raw string.
     pub fn raw_string(&self, n: usize) -> String {
         let mut text = String::with_capacity(n);
