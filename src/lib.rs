@@ -8,76 +8,136 @@ use std::fmt::{ Display, Formatter };
 use std::fmt::Error as FormatError;
 use range::Range;
 
-/// Reads an expected token, return `None` if it does not match.
-pub fn token(token: &str, chars: &[char], offset: usize) -> Option<Range> {
-    let n = token.chars().count();
-    if chars.len() < n { return None; }
-    for (i, c) in token.chars().enumerate() {
-        if c != chars[i] { return None; }
-    }
-    return Some(Range::new(offset, n))
+/// Stores the state of parsing.
+pub struct ReadToken<'a> {
+    chars: &'a [char],
+    offset: usize,
 }
 
-/// Reads a token until any character in string or whitespace.
-/// Returns `(range, None)` if stopping at whitespace or end of characters.
-/// Returns `(range, Some(x))` if stopping at a character.
-pub fn until_any_or_whitespace(
-    any: &str,
-    chars: &[char],
-    offset: usize
-) -> (Range, Option<usize>) {
-    for (i, &c) in chars.iter().enumerate() {
-        if c.is_whitespace() {
-            return (Range::new(offset, i), None)
+impl<'a> ReadToken<'a> {
+    /// Creates a new state.
+    pub fn new(chars: &'a [char], offset: usize) -> ReadToken<'a> {
+        ReadToken {
+            chars: chars,
+            offset: offset,
         }
-        for (j, b) in any.chars().enumerate() {
-            if c == b {
-                return (Range::new(offset, i), Some(j))
+    }
+
+    /// Consumes a range of characters.
+    pub fn consume(self, range: Range) -> ReadToken<'a> {
+        let next_offset = range.next_offset();
+        ReadToken {
+            chars: &self.chars[next_offset - self.offset..],
+            offset: next_offset
+        }
+    }
+
+    /// Peek a number of characters ahead.
+    pub fn peek(&self, n: usize) -> Range {
+        Range::new(self.offset, n)
+    }
+
+    /// Reads an expected tag, returns character range and new state.
+    /// Returns old state when fail to match tag.
+    pub fn tag(&self, tag: &str) -> Option<Range> {
+        let n = tag.chars().count();
+        if self.chars.len() < n { return None; }
+        for (i, c) in tag.chars().enumerate() {
+            if c != self.chars[i] { return None; }
+        }
+        return Some(self.peek(n));
+    }
+
+    /// Reads a token until any character in string or whitespace.
+    /// Returns `(range, None)` if stopping at whitespace
+    /// or end of characters.
+    /// Returns `(range, Some(x))` if stopping at a character.
+    pub fn until_any_or_whitespace(&self, any: &str) -> (Range, Option<usize>) {
+        for (i, &c) in self.chars.iter().enumerate() {
+            if c.is_whitespace() { return (self.peek(i), None) }
+            for (j, b) in any.chars().enumerate() {
+                if c == b { return (self.peek(i), Some(j)) }
             }
         }
+        (self.peek(self.chars.len()), None)
     }
-    (Range::new(offset, chars.len()), None)
-}
 
-/// Reads token until any character in string.
-/// Returns `(range, None)` if stopping at end of characters.
-/// Returns `(range, Some(x))` if stopping at a character.
-pub fn until_any(
-    any: &str,
-    chars: &[char],
-    offset: usize
-) -> (Range, Option<usize>) {
-    for (i, &c) in chars.iter().enumerate() {
-        for (j, b) in any.chars().enumerate() {
-            if c == b {
-                return (Range::new(offset, i), Some(j))
+    /// Reads token until any character in string.
+    /// Returns `(new_state, range, None)` if stopping at end of characters.
+    /// Returns `(new_state, range, Some(x))` if stopping at a character.
+    pub fn until_any(&self, any: &str) -> (Range, Option<usize>) {
+        for (i, &c) in self.chars.iter().enumerate() {
+            for (j, b) in any.chars().enumerate() {
+                if c == b { return (self.peek(i), Some(j)) }
             }
         }
+        (self.peek(self.chars.len()), None)
     }
-    (Range::new(offset, chars.len()), None)
-}
 
-/// Reads whitespace.
-pub fn whitespace(chars: &[char], offset: usize) -> Range {
-    for (i, &c) in chars.iter().enumerate() {
-        if !c.is_whitespace() { return Range::new(offset, i) }
+    /// Reads whitespace.
+    pub fn whitespace(&self) -> Range {
+        for (i, &c) in self.chars.iter().enumerate() {
+            if !c.is_whitespace() { return self.peek(i); }
+        }
+        self.peek(self.chars.len())
     }
-    Range::new(offset, chars.len())
-}
 
-/// Reads string with character escapes.
-pub fn string(chars: &[char], offset: usize) -> Option<Range> {
-    if chars.len() == 0 || chars[0] != '"' { return None; }
-    let mut escape = false;
-    for i in 1..chars.len() - 1 {
-        if chars[i] == '\\' { escape = true; continue; }
-        if !escape && chars[i] == '"' { return Some(Range::new(offset, i + 1)) }
-        if escape { escape = false; }
+    /// Reads string with character escapes.
+    pub fn string(&self) -> Option<Range> {
+        let n = self.chars.len();
+        if n == 0 || self.chars[0] != '"' { return None; }
+        let mut escape = false;
+        for i in 1..n - 1 {
+            if self.chars[i] == '\\' { escape = true; continue; }
+            if !escape && self.chars[i] == '"' {
+                return Some(self.peek(i + 1))
+            }
+            if escape { escape = false; }
+        }
+        if !escape && self.chars[n - 1] == '"' {
+            return Some(self.peek(n))
+        } else {
+            return None
+        }
     }
-    if !escape && chars[chars.len() - 1] == '"' {
-        return Some(Range::new(offset, chars.len()))
-    } else {
-        return None
+
+    /// Reads number.
+    pub fn number(
+        self,
+        settings: &NumberSettings,
+    ) -> Option<Range> {
+        let mut has_sign = false;
+        let mut has_decimal_separator = false;
+        let mut has_scientific = false;
+        let mut has_exponent_sign = false;
+        let mut has_digit = false;
+        for (i, &c) in self.chars.iter().enumerate() {
+            if !has_sign {
+                has_sign = true;
+                if c == '+' || c == '-' { continue; }
+            }
+            if c.is_digit(10) {
+                has_digit = true;
+                continue;
+            }
+            if has_digit && settings.allow_underscore && c == '_' { continue; }
+            if !has_decimal_separator && c == '.' {
+                has_decimal_separator = true;
+                continue;
+            }
+            if !has_scientific && (c == 'e' || c == 'E') {
+                has_scientific = true;
+                continue;
+            }
+            if has_scientific && !has_exponent_sign {
+                has_exponent_sign = true;
+                if c == '+' || c == '-' { continue; }
+            }
+            if i > 0 { return Some(self.peek(i)); }
+            else { return None }
+        }
+        if self.chars.len() > 0 { return Some(self.peek(self.chars.len())); }
+        else { return None }
     }
 }
 
@@ -189,46 +249,6 @@ pub fn parse_string(
 pub struct NumberSettings {
     /// Whether to allow underscore in number.
     pub allow_underscore: bool,
-}
-
-/// Reads number.
-pub fn number(
-    settings: &NumberSettings,
-    chars: &[char],
-    offset: usize
-) -> Option<Range> {
-    let mut has_sign = false;
-    let mut has_decimal_separator = false;
-    let mut has_scientific = false;
-    let mut has_exponent_sign = false;
-    let mut has_digit = false;
-    for (i, &c) in chars.iter().enumerate() {
-        if !has_sign {
-            has_sign = true;
-            if c == '+' || c == '-' { continue; }
-        }
-        if c.is_digit(10) {
-            has_digit = true;
-            continue;
-        }
-        if has_digit && settings.allow_underscore && c == '_' { continue; }
-        if !has_decimal_separator && c == '.' {
-            has_decimal_separator = true;
-            continue;
-        }
-        if !has_scientific && (c == 'e' || c == 'E') {
-            has_scientific = true;
-            continue;
-        }
-        if has_scientific && !has_exponent_sign {
-            has_exponent_sign = true;
-            if c == '+' || c == '-' { continue; }
-        }
-        if i > 0 { return Some(Range::new(offset, i)) }
-        else { return None }
-    }
-    if chars.len() > 0 { return Some(Range::new(offset, chars.len())) }
-    else { return None }
 }
 
 /// Error when parsing number.
@@ -431,69 +451,69 @@ mod tests {
     #[test]
     pub fn test_token() {
         let text = "one day, a nice day".chars().collect::<Vec<char>>();
-        let res = token("one", &text, 0);
+        let res = ReadToken::new(&text, 0).tag("one");
         assert_eq!(res, Some(Range::new(0, 3)));
-        let res = token("two", &text, 0);
+        let res = ReadToken::new(&text, 0).tag("two");
         assert_eq!(res, None);
 
         let text = "°a".chars().collect::<Vec<char>>();
-        let res = token("°a", &text, 0);
+        let res = ReadToken::new(&text, 0).tag("°a");
         assert_eq!(res, Some(Range::new(0, 2)));
     }
 
     #[test]
     pub fn test_until_any_or_whitespace() {
         let text = "one day, a nice day".chars().collect::<Vec<char>>();
-        let res = until_any_or_whitespace(",", &text, 0);
+        let res = ReadToken::new(&text, 0).until_any_or_whitespace(",");
         assert_eq!(res, (Range::new(0, 3), None));
-        let res = until_any_or_whitespace(",", &text[3..], 3);
+        let res = ReadToken::new(&text[3..], 3).until_any_or_whitespace(",");
         assert_eq!(res, (Range::empty(3), None));
-        let res = until_any_or_whitespace(",", &text[4..], 4);
+        let res = ReadToken::new(&text[4..], 4).until_any_or_whitespace(",");
         assert_eq!(res, (Range::new(4, 3), Some(0)));
     }
 
     #[test]
     pub fn test_until_any() {
         let text = "one day, a nice day".chars().collect::<Vec<char>>();
-        let res = until_any(",", &text, 0);
+        let res = ReadToken::new(&text, 0).until_any(",");
         assert_eq!(res, (Range::new(0, 7), Some(0)));
-        let res = until_any(",", &text[3..], 3);
+        let res = ReadToken::new(&text[3..], 3).until_any(",");
         assert_eq!(res, (Range::new(3, 4), Some(0)));
-        let res = until_any(",", &text[8..], 8);
+        let res = ReadToken::new(&text[8..], 8).until_any(",");
         assert_eq!(res, (Range::new(8, 11), None));
     }
 
     #[test]
     pub fn test_whitespace() {
         let text = "   123".chars().collect::<Vec<char>>();
-        let res = whitespace(&text, 0);
+        let res = ReadToken::new(&text, 0).whitespace();
         assert_eq!(res, Range::new(0, 3));
     }
 
     #[test]
     pub fn test_string() {
         let text = "\"hello\"".chars().collect::<Vec<char>>();
-        let res = string(&text, 0);
+        let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, Some(Range::new(0, 7)));
         let txt = parse_string(&text, 0, res.unwrap().next_offset()).ok().unwrap();
         assert_eq!(txt, "hello");
 
         let text = "\"he\\\"llo\"".chars().collect::<Vec<char>>();
-        let res = string(&text, 0);
+        let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, Some(Range::new(0, 9)));
         let txt = parse_string(&text, 0, res.unwrap().next_offset());
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "he\"llo");
 
         let text = "\"he\"llo\"".chars().collect::<Vec<char>>();
-        let res = string(&text, 0);
+        let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, Some(Range::new(0, 4)));
         let txt = parse_string(&text, 0, res.unwrap().next_offset());
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "he");
 
         let text = "\"hello\\\"".chars().collect::<Vec<char>>();
-        let res = string(&text, 0);
+        let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, None);
     }
 
@@ -519,31 +539,31 @@ mod tests {
         assert_eq!(res, 2.5E-2);
 
         let text = "20".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 2)));
 
         let text = "-20".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 3)));
 
         let text = "2e2".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 3)));
 
         let text = "2.5".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 3)));
 
         let text = "2.5e2".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 5)));
 
         let text = "2.5E2".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 5)));
 
         let text = "2.5E-2".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 6)));
     }
 
@@ -569,43 +589,43 @@ mod tests {
         assert_eq!(res, 2.5E-2);
 
         let text = "20".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 2)));
 
         let text = "-20".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 3)));
 
         let text = "2e2".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 3)));
 
         let text = "2.5".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 3)));
 
         let text = "2.5e2".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 5)));
 
         let text = "2.5E2".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 5)));
 
         let text = "2.5E-2".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 6)));
 
         let text = "_2.5E-2".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, None);
 
         let text = "2_.5E-2".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 7)));
 
         let text = "2_000_000.5E-2".chars().collect::<Vec<char>>();
-        let res = number(&settings, &text, 0);
+        let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 14)));
     }
 }
