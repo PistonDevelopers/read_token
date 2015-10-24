@@ -24,12 +24,11 @@ impl<'a> ReadToken<'a> {
         }
     }
 
-    /// Consumes a range of characters.
-    pub fn consume(self, range: Range) -> ReadToken<'a> {
-        let next_offset = range.next_offset();
+    /// Consumes n characters.
+    pub fn consume(self, n: usize) -> ReadToken<'a> {
         ReadToken {
-            chars: &self.chars[next_offset - self.offset..],
-            offset: next_offset
+            chars: &self.chars[n..],
+            offset: self.offset + n
         }
     }
 
@@ -91,7 +90,7 @@ impl<'a> ReadToken<'a> {
                             // If it did, we do not require a new line before
                             // calling the closure.
                             new_lines = read_token.ended_with_newline(range);
-                            read_token = read_token.consume(range);
+                            read_token = read_token.consume(range.length);
                         }
                     }
                 } else {
