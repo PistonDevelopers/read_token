@@ -11,47 +11,48 @@ use range::Range;
 /// Stores the state of parsing.
 #[derive(Copy, Clone, Debug)]
 pub struct ReadToken<'a> {
-    chars: &'a [char],
+    src: &'a str,
     offset: usize,
 }
 
 impl<'a> ReadToken<'a> {
-    /// Creates a new state.
-    pub fn new(chars: &'a [char], offset: usize) -> ReadToken<'a> {
+    /// Creates a new `ReadToken`.
+    /// The offset is in characters.
+    pub fn new(src: &'a str, offset: usize) -> ReadToken<'a> {
         ReadToken {
-            chars: chars,
+            src: src,
             offset: offset,
         }
     }
 
     /// Consumes n characters.
     pub fn consume(self, n: usize) -> ReadToken<'a> {
+        let n = self.src.chars().take(n)
+            .map(|c| c.len_utf8()).fold(0, |a, b| a + b);
         ReadToken {
-            chars: &self.chars[n..],
+            src: &self.src[n..],
             offset: self.offset + n
         }
     }
 
     /// Reads a raw string.
     pub fn raw_string(&self, n: usize) -> String {
-        let mut text = String::with_capacity(n);
-        for c in self.chars.iter().take(n) {
-            text.push(*c);
-        }
-        text
+        self.src.chars().take(n).collect::<String>()
     }
 
     /// Returns whether a range of characters ended with newline character
     /// followed by whitespace.
     fn ended_with_newline(&self, range: Range) -> bool {
         let end = range.next_offset() - self.offset;
-        let last_new_line = self.chars[..end].iter()
-            .rev()
-            .take_while(|&c| *c != '\n' && c.is_whitespace())
-            .count();
-        if end < last_new_line + 1
-        || self.chars[end - last_new_line - 1] != '\n' { false }
-        else { true }
+        let mut ends_with_newline = false;
+        for c in self.src.chars().take(end) {
+            if c as char == '\n' {
+                ends_with_newline = true;
+            } else if !c.is_whitespace() {
+                ends_with_newline = false;
+            }
+        }
+        ends_with_newline
     }
 
     /// Read lines until closure returns `None`.
@@ -63,14 +64,28 @@ impl<'a> ReadToken<'a> {
         let mut read_token = *self;
         let mut new_lines = true;
         loop {
-            let len = read_token.chars.iter()
-                .take_while(|&c| *c != '\n' && c.is_whitespace())
-                .count();
-            if len == read_token.chars.len() {
+            let mut ended_with_newline = false;
+            let mut reached_end = true;
+            let mut len = 0;
+            let mut byte_offset = 0;
+            for (i, c) in read_token.src.char_indices() {
+                if c == '\n' {
+                    ended_with_newline = true;
+                    reached_end = false;
+                    break;
+                }
+                if !c.is_whitespace() {
+                    reached_end = false;
+                    break;
+                }
+                len += 1;
+                byte_offset = i;
+            }
+            if reached_end {
                 read_token.offset += len;
                 break;
-            } else if read_token.chars[len] == '\n' {
-                read_token.chars = &read_token.chars[len + 1..];
+            } else if ended_with_newline {
+                read_token.src = &read_token.src[byte_offset + 1..];
                 read_token.offset += len + 1;
                 new_lines |= true;
             } else {
@@ -114,12 +129,11 @@ impl<'a> ReadToken<'a> {
     /// Reads an expected tag, returns character range and new state.
     /// Returns old state when fail to match tag.
     pub fn tag(&self, tag: &str) -> Option<Range> {
-        let n = tag.chars().count();
-        if self.chars.len() < n { return None; }
-        for (i, c) in tag.chars().enumerate() {
-            if c != self.chars[i] { return None; }
+        if self.src.starts_with(tag) {
+            Some(self.peek(tag.chars().count()))
+        } else {
+            None
         }
-        return Some(self.peek(n));
     }
 
     /// Reads a token until any character in string or whitespace.
@@ -127,52 +141,52 @@ impl<'a> ReadToken<'a> {
     /// or end of characters.
     /// Returns `(range, Some(x))` if stopping at a character.
     pub fn until_any_or_whitespace(&self, any: &str) -> (Range, Option<usize>) {
-        for (i, &c) in self.chars.iter().enumerate() {
+        for (i, c) in self.src.chars().enumerate() {
             if c.is_whitespace() { return (self.peek(i), None) }
             for (j, b) in any.chars().enumerate() {
                 if c == b { return (self.peek(i), Some(j)) }
             }
         }
-        (self.peek(self.chars.len()), None)
+        (self.peek(self.src.chars().count()), None)
     }
 
     /// Reads token until any character in string.
     /// Returns `(new_state, range, None)` if stopping at end of characters.
     /// Returns `(new_state, range, Some(x))` if stopping at a character.
     pub fn until_any(&self, any: &str) -> (Range, Option<usize>) {
-        for (i, &c) in self.chars.iter().enumerate() {
+        for (i, c) in self.src.chars().enumerate() {
             for (j, b) in any.chars().enumerate() {
                 if c == b { return (self.peek(i), Some(j)) }
             }
         }
-        (self.peek(self.chars.len()), None)
+        (self.peek(self.src.chars().count()), None)
     }
 
     /// Reads whitespace.
     pub fn whitespace(&self) -> Range {
-        for (i, &c) in self.chars.iter().enumerate() {
+        for (i, c) in self.src.chars().enumerate() {
             if !c.is_whitespace() { return self.peek(i); }
         }
-        self.peek(self.chars.len())
+        self.peek(self.src.chars().count())
     }
 
     /// Reads string with character escapes.
     pub fn string(&self) -> Option<Range> {
-        let n = self.chars.len();
-        if n == 0 || self.chars[0] != '"' { return None; }
+        let mut chars = self.src.chars();
+        match chars.next() {
+            None => { return None; }
+            Some('"') => {}
+            _ => { return None; }
+        }
         let mut escape = false;
-        for i in 1..n - 1 {
-            if self.chars[i] == '\\' { escape = true; continue; }
-            if !escape && self.chars[i] == '"' {
-                return Some(self.peek(i + 1))
+        for (i, c) in chars.enumerate() {
+            if c == '\\' { escape = true; continue; }
+            if !escape && c == '"' {
+                return Some(self.peek(i + 2))
             }
             if escape { escape = false; }
         }
-        if !escape && self.chars[n - 1] == '"' {
-            return Some(self.peek(n))
-        } else {
-            return None
-        }
+        None
     }
 
     /// Reads number.
@@ -182,7 +196,7 @@ impl<'a> ReadToken<'a> {
         let mut has_scientific = false;
         let mut has_exponent_sign = false;
         let mut has_digit = false;
-        for (i, &c) in self.chars.iter().enumerate() {
+        for (i, c) in self.src.chars().enumerate() {
             if !has_sign {
                 has_sign = true;
                 if c == '+' || c == '-' { continue; }
@@ -207,22 +221,25 @@ impl<'a> ReadToken<'a> {
             if i > 0 { return Some(self.peek(i)); }
             else { return None }
         }
-        if self.chars.len() > 0 { return Some(self.peek(self.chars.len())); }
-        else { return None }
+        if self.src.len() > 0 { Some(self.peek(self.src.chars().count())) }
+        else { None }
     }
 
     /// Parses four unicode characters in hexadecimal format.
     fn parse_unicode(&self) -> Result<char, Range<ParseStringError>> {
         use std::char;
 
-        if self.chars.len() < 4 {
-            return Err(Range::new(self.offset, self.chars.len())
-                .wrap(ParseStringError::ExpectedFourHexadecimals));
-        }
-
         let mut u: [u32; 4] = [0; 4];
+        let mut chars = self.src.chars();
         for (i, c) in u.iter_mut().enumerate() {
-            match self.chars[i].to_digit(16) {
+            let ch = match chars.next() {
+                None => {
+                    return Err(Range::new(self.offset, self.src.len())
+                        .wrap(ParseStringError::ExpectedFourHexadecimals));
+                }
+                Some(ch) => ch
+            };
+            match ch.to_digit(16) {
                 Some(x) => *c = x as u32,
                 None => {
                     return Err(Range::new(self.offset + i, 1)
@@ -248,7 +265,13 @@ impl<'a> ReadToken<'a> {
         let mut escape = false;
         let length = n - 2;
         let mut txt = String::with_capacity(length);
-        for (i, &c) in self.chars[1..length + 1].iter().enumerate() {
+        let mut skip_unicode = 0;
+        for (i, (j, c)) in self.src.char_indices()
+            .skip(1).take(length).enumerate() {
+            if skip_unicode > 0 {
+                skip_unicode -= 1;
+                continue;
+            }
             if c == '\\' { escape = true; continue; }
             if escape {
                 escape = false;
@@ -263,9 +286,9 @@ impl<'a> ReadToken<'a> {
                     't' => '\t',
                     'u' => {
                         let offset = self.offset + 1 + i;
-                        match ReadToken::new(&self.chars[offset..], offset)
+                        match ReadToken::new(&self.src[j + 1..], offset)
                             .parse_unicode() {
-                            Ok(x) => x,
+                            Ok(x) => { skip_unicode = 4; x },
                             Err(err) => return Err(err)
                         }
                     }
@@ -285,15 +308,18 @@ impl<'a> ReadToken<'a> {
     pub fn parse_number(&self, settings: &NumberSettings, n: usize)
     -> Result<f64, ParseNumberError> {
         #[inline(always)]
-        fn slice_shift_char(src: &[char]) -> Option<(char, &[char])> {
+        fn slice_shift_char(src: &str) -> Option<(char, &str)> {
             if src.len() == 0 { None }
-            else { Some((src[0], &src[1..])) }
+            else {
+                let ch = src.chars().next().unwrap();
+                Some((ch, &src[ch.len_utf8()..]))
+            }
         }
 
         #[inline(always)]
-        fn parse_u64(settings: &NumberSettings, src: &[char]) -> Result<u64, ()> {
+        fn parse_u64(settings: &NumberSettings, src: &str) -> Result<u64, ()> {
             let mut res: u64 = 0;
-            for &c in src {
+            for c in src.chars() {
                 if settings.allow_underscore && c == '_' { continue; }
                 res *= 10;
                 if let Some(digit) = to_digit(c) {
@@ -312,7 +338,9 @@ impl<'a> ReadToken<'a> {
         }
 
         let radix: u32 = 10;
-        let src = &self.chars[..n];
+        let n = self.src.chars().take(n)
+            .map(|c| c.len_utf8()).fold(0, |a, b| a + b);
+        let src = &self.src[..n];
         let (is_positive, src) =  match slice_shift_char(src) {
             None => {
                 return Err(ParseNumberError::ExpectedDigits);
@@ -328,12 +356,12 @@ impl<'a> ReadToken<'a> {
         let mut sig = if is_positive { 0.0 } else { -0.0 };
         // Necessary to detect overflow
         let mut prev_sig = sig;
-        let mut cs = src.iter().enumerate();
+        let mut cs = src.chars().enumerate();
         // Exponent prefix and exponent index offset
         let mut exp_info = None::<(char, usize)>;
 
         // Parse the integer part of the significand
-        for (i, &c) in cs.by_ref() {
+        for (i, c) in cs.by_ref() {
             if settings.allow_underscore && c == '_' { continue; }
             match to_digit(c) {
                 Some(digit) => {
@@ -382,7 +410,7 @@ impl<'a> ReadToken<'a> {
         // part of the significand
         if exp_info.is_none() {
             let mut power = 1.0;
-            for (i, &c) in cs.by_ref() {
+            for (i, c) in cs.by_ref() {
                 if settings.allow_underscore && c == '_' { continue; }
                 match to_digit(c) {
                     Some(digit) => {
@@ -515,20 +543,20 @@ mod tests {
 
     #[test]
     pub fn test_token() {
-        let text = "one day, a nice day".chars().collect::<Vec<char>>();
+        let text = "one day, a nice day";
         let res = ReadToken::new(&text, 0).tag("one");
         assert_eq!(res, Some(Range::new(0, 3)));
         let res = ReadToken::new(&text, 0).tag("two");
         assert_eq!(res, None);
 
-        let text = "°a".chars().collect::<Vec<char>>();
+        let text = "°a";
         let res = ReadToken::new(&text, 0).tag("°a");
         assert_eq!(res, Some(Range::new(0, 2)));
     }
 
     #[test]
     pub fn test_until_any_or_whitespace() {
-        let text = "one day, a nice day".chars().collect::<Vec<char>>();
+        let text = "one day, a nice day";
         let res = ReadToken::new(&text, 0).until_any_or_whitespace(",");
         assert_eq!(res, (Range::new(0, 3), None));
         let res = ReadToken::new(&text[3..], 3).until_any_or_whitespace(",");
@@ -539,7 +567,7 @@ mod tests {
 
     #[test]
     pub fn test_until_any() {
-        let text = "one day, a nice day".chars().collect::<Vec<char>>();
+        let text = "one day, a nice day";
         let res = ReadToken::new(&text, 0).until_any(",");
         assert_eq!(res, (Range::new(0, 7), Some(0)));
         let res = ReadToken::new(&text[3..], 3).until_any(",");
@@ -550,35 +578,49 @@ mod tests {
 
     #[test]
     pub fn test_whitespace() {
-        let text = "   123".chars().collect::<Vec<char>>();
+        let text = "   123";
         let res = ReadToken::new(&text, 0).whitespace();
         assert_eq!(res, Range::new(0, 3));
     }
 
     #[test]
     pub fn test_string() {
-        let text = "\"hello\"".chars().collect::<Vec<char>>();
+        let text = "\"hello\"";
         let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, Some(Range::new(0, 7)));
         let txt = ReadToken::new(&text, 0).parse_string(res.unwrap().length);
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "hello");
 
-        let text = "\"he\\\"llo\"".chars().collect::<Vec<char>>();
+        let text = "\"he\\\"llo\"";
         let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, Some(Range::new(0, 9)));
         let txt = ReadToken::new(&text, 0).parse_string(res.unwrap().length);
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "he\"llo");
 
-        let text = "\"he\"llo\"".chars().collect::<Vec<char>>();
+        let text = "\"he\"llo\"";
         let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, Some(Range::new(0, 4)));
         let txt = ReadToken::new(&text, 0).parse_string(res.unwrap().length);
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "he");
 
-        let text = "\"hello\\\"".chars().collect::<Vec<char>>();
+        let text = "\"\\u20AC\"";
+        let res = ReadToken::new(&text, 0).string();
+        assert_eq!(res, Some(Range::new(0, 8)));
+        let txt = ReadToken::new(&text, 0).parse_string(res.unwrap().length);
+        let txt = txt.unwrap();
+        assert_eq!(txt, "€");
+
+        let text = "\"😎\"";
+        let res = ReadToken::new(&text, 0).string();
+        assert_eq!(res, Some(Range::new(0, 3)));
+        let txt = ReadToken::new(&text, 0).parse_string(res.unwrap().length);
+        let txt = txt.unwrap();
+        assert_eq!(txt, "😎");
+
+        let text = "\"hello\\\"";
         let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, None);
     }
@@ -587,60 +629,58 @@ mod tests {
     pub fn test_number() {
         let settings = NumberSettings { allow_underscore: false };
 
-        let to_chars = |s: &str| s.chars().collect::<Vec<char>>();
-
-        let chars = to_chars("20");
-        let res: f64 = ReadToken::new(&chars, 0)
-            .parse_number(&settings, chars.len()).unwrap();
+        let text = "20";
+        let res: f64 = ReadToken::new(&text, 0)
+            .parse_number(&settings, text.chars().count()).unwrap();
         assert_eq!(res, 20.0);
-        let chars = to_chars("-20");
-        let res: f64 = ReadToken::new(&chars, 0)
-            .parse_number(&settings, chars.len()).unwrap();
+        let text = "-20";
+        let res: f64 = ReadToken::new(&text, 0)
+            .parse_number(&settings, text.chars().count()).unwrap();
         assert_eq!(res, -20.0);
-        let chars = to_chars("2e2");
-        let res: f64 = ReadToken::new(&chars, 0)
-            .parse_number(&settings, chars.len()).unwrap();
+        let text = "2e2";
+        let res: f64 = ReadToken::new(&text, 0)
+            .parse_number(&settings, text.chars().count()).unwrap();
         assert_eq!(res, 2e2);
-        let chars = to_chars("2.5");
-        let res: f64 = ReadToken::new(&chars, 0)
-            .parse_number(&settings, chars.len()).unwrap();
+        let text = "2.5";
+        let res: f64 = ReadToken::new(&text, 0)
+            .parse_number(&settings, text.chars().count()).unwrap();
         assert_eq!(res, 2.5);
         let res: f64 = "2.5e2".parse().unwrap();
         assert_eq!(res, 2.5e2);
-        let chars = to_chars("2.5E2");
-        let res: f64 = ReadToken::new(&chars, 0)
-            .parse_number(&settings, chars.len()).unwrap();
+        let text = "2.5E2";
+        let res: f64 = ReadToken::new(&text, 0)
+            .parse_number(&settings, text.chars().count()).unwrap();
         assert_eq!(res, 2.5E2);
-        let chars = to_chars("2.5E-2");
-        let res: f64 = ReadToken::new(&chars, 0)
-            .parse_number(&settings, chars.len()).unwrap();
+        let text = "2.5E-2";
+        let res: f64 = ReadToken::new(&text, 0)
+            .parse_number(&settings, text.chars().count()).unwrap();
         assert_eq!(res, 2.5E-2);
 
-        let text = "20".chars().collect::<Vec<char>>();
+        let text = "20";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 2)));
 
-        let text = "-20".chars().collect::<Vec<char>>();
+        let text = "-20";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 3)));
 
-        let text = "2e2".chars().collect::<Vec<char>>();
+        let text = "2e2";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 3)));
 
-        let text = "2.5".chars().collect::<Vec<char>>();
+        let text = "2.5";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 3)));
 
-        let text = "2.5e2".chars().collect::<Vec<char>>();
+        let text = "2.5e2";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 5)));
 
-        let text = "2.5E2".chars().collect::<Vec<char>>();
+        let text = "2.5E2";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 5)));
 
-        let text = "2.5E-2".chars().collect::<Vec<char>>();
+        let text = "2.5E-2";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 6)));
     }
@@ -649,74 +689,72 @@ mod tests {
     pub fn test_underscore_number() {
         let settings = NumberSettings { allow_underscore: true };
 
-        let to_chars = |s: &str| s.chars().collect::<Vec<char>>();
-
-        let chars = to_chars("2_0");
-        let res: f64 = ReadToken::new(&chars, 0)
-            .parse_number(&settings, chars.len()).unwrap();
+        let text = "2_0";
+        let res: f64 = ReadToken::new(&text, 0)
+            .parse_number(&settings, text.chars().count()).unwrap();
         assert_eq!(res, 20.0);
-        let chars = to_chars("-2_0");
-        let res: f64 = ReadToken::new(&chars, 0)
-            .parse_number(&settings, chars.len()).unwrap();
+        let text = "-2_0";
+        let res: f64 = ReadToken::new(&text, 0)
+            .parse_number(&settings, text.chars().count()).unwrap();
         assert_eq!(res, -20.0);
-        let chars = to_chars("2_e2_");
-        let res: f64 = ReadToken::new(&chars, 0)
-            .parse_number(&settings, chars.len()).unwrap();
+        let text = "2_e2_";
+        let res: f64 = ReadToken::new(&text, 0)
+            .parse_number(&settings, text.chars().count()).unwrap();
         assert_eq!(res, 2e2);
-        let chars = to_chars("2_.5_");
-        let res: f64 = ReadToken::new(&chars, 0)
-            .parse_number(&settings, chars.len()).unwrap();
+        let text = "2_.5_";
+        let res: f64 = ReadToken::new(&text, 0)
+            .parse_number(&settings, text.chars().count()).unwrap();
         assert_eq!(res, 2.5);
-        let chars = to_chars("2_.5_e2_");
-        let res: f64 = ReadToken::new(&chars, 0)
-            .parse_number(&settings, chars.len()).unwrap();
+        let text = "2_.5_e2_";
+        let res: f64 = ReadToken::new(&text, 0)
+            .parse_number(&settings, text.chars().count()).unwrap();
         assert_eq!(res, 2.5e2);
-        let chars = to_chars("2_.5_E2_");
-        let res: f64 = ReadToken::new(&chars, 0)
-            .parse_number(&settings, chars.len()).unwrap();
+        let text = "2_.5_E2_";
+        let res: f64 = ReadToken::new(&text, 0)
+            .parse_number(&settings, text.chars().count()).unwrap();
         assert_eq!(res, 2.5E2);
-        let chars = to_chars("2_.5_E-2_");
-        let res: f64 = ReadToken::new(&chars, 0)
-            .parse_number(&settings, chars.len()).unwrap();
+        let text = "2_.5_E-2_";
+        let res: f64 = ReadToken::new(&text, 0)
+            .parse_number(&settings, text.chars().count()).unwrap();
         assert_eq!(res, 2.5E-2);
 
-        let text = "20".chars().collect::<Vec<char>>();
+        let text = "20";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 2)));
 
-        let text = "-20".chars().collect::<Vec<char>>();
+        let text = "-20";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 3)));
 
-        let text = "2e2".chars().collect::<Vec<char>>();
+        let text = "2e2";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 3)));
 
-        let text = "2.5".chars().collect::<Vec<char>>();
+        let text = "2.5";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 3)));
 
-        let text = "2.5e2".chars().collect::<Vec<char>>();
+        let text = "2.5e2";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 5)));
 
-        let text = "2.5E2".chars().collect::<Vec<char>>();
+        let text = "2.5E2";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 5)));
 
-        let text = "2.5E-2".chars().collect::<Vec<char>>();
+        let text = "2.5E-2";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 6)));
 
-        let text = "_2.5E-2".chars().collect::<Vec<char>>();
+        let text = "_2.5E-2";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, None);
 
-        let text = "2_.5E-2".chars().collect::<Vec<char>>();
+        let text = "2_.5E-2";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 7)));
 
-        let text = "2_000_000.5E-2".chars().collect::<Vec<char>>();
+        let text = "2_000_000.5E-2";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 14)));
     }
