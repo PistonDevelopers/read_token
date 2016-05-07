@@ -27,10 +27,11 @@ impl<'a> ReadToken<'a> {
 
     /// Consumes n characters.
     pub fn consume(self, n: usize) -> ReadToken<'a> {
-        let n = self.src.chars().take(n)
+        if n == 0 { return self; }
+        let utf8_n = self.src.chars().take(n)
             .map(|c| c.len_utf8()).fold(0, |a, b| a + b);
         ReadToken {
-            src: &self.src[n..],
+            src: &self.src[utf8_n..],
             offset: self.offset + n
         }
     }
