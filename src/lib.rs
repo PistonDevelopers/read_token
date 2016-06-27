@@ -181,7 +181,7 @@ impl<'a> ReadToken<'a> {
         }
         let mut escape = false;
         for (i, c) in chars.enumerate() {
-            if c == '\\' { escape = true; continue; }
+            if !escape && c == '\\' { escape = true; continue; }
             if !escape && c == '"' {
                 return Some(self.peek(i + 2))
             }
@@ -273,7 +273,7 @@ impl<'a> ReadToken<'a> {
                 skip_unicode -= 1;
                 continue;
             }
-            if c == '\\' { escape = true; continue; }
+            if !escape && c == '\\' { escape = true; continue; }
             if escape {
                 escape = false;
                 txt.push(match c {
@@ -586,21 +586,21 @@ mod tests {
 
     #[test]
     pub fn test_string() {
-        let text = "\"hello\"";
+        let text = r#""hello""#;
         let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, Some(Range::new(0, 7)));
         let txt = ReadToken::new(&text, 0).parse_string(res.unwrap().length);
         let txt = txt.ok().unwrap();
         assert_eq!(txt, "hello");
 
-        let text = "\"he\\\"llo\"";
+        let text = r#""he\"llo""#;
         let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, Some(Range::new(0, 9)));
         let txt = ReadToken::new(&text, 0).parse_string(res.unwrap().length);
         let txt = txt.ok().unwrap();
-        assert_eq!(txt, "he\"llo");
+        assert_eq!(txt, r#"he"llo"#);
 
-        let text = "\"he\"llo\"";
+        let text = r#""he"llo""#;
         let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, Some(Range::new(0, 4)));
         let txt = ReadToken::new(&text, 0).parse_string(res.unwrap().length);
@@ -621,9 +621,16 @@ mod tests {
         let txt = txt.unwrap();
         assert_eq!(txt, "😎");
 
-        let text = "\"hello\\\"";
+        let text = r#""hello\""#;
         let res = ReadToken::new(&text, 0).string();
         assert_eq!(res, None);
+
+        let text = r#""\\""#;
+        let res = ReadToken::new(&text, 0).string();
+        assert_eq!(res, Some(Range::new(0, 4)));
+        let txt = ReadToken::new(&text, 0).parse_string(res.unwrap().length);
+        let txt = txt.ok().unwrap();
+        assert_eq!(txt, r#"\"#);
     }
 
     #[test]
