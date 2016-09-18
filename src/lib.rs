@@ -11,8 +11,10 @@ use range::Range;
 /// Stores the state of parsing.
 #[derive(Copy, Clone, Debug)]
 pub struct ReadToken<'a> {
-    src: &'a str,
-    offset: usize,
+    /// Source.
+    pub src: &'a str,
+    /// Character offset.
+    pub offset: usize,
 }
 
 impl<'a> ReadToken<'a> {
