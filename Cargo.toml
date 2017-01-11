@@ -1,7 +1,7 @@
 [package]
 
 name = "read_token"
-version = "0.7.0"
+version = "0.8.0"
 authors = ["bvssvni <bvssvni@gmail.com>"]
 keywords = ["read", "parse", "token", "piston"]
 description = "A simple library to read tokens using look ahead"

@@ -213,7 +213,7 @@ impl<'a> ReadToken<'a> {
                 has_decimal_separator = true;
                 continue;
             }
-            if !has_scientific && (c == 'e' || c == 'E') {
+            if !has_scientific && (c == 'e' || c == 'E') && i > 0 {
                 has_scientific = true;
                 continue;
             }
@@ -505,7 +505,7 @@ impl Display for ParseStringError {
 }
 
 /// The settings for reading numbers.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct NumberSettings {
     /// Whether to allow underscore in number.
     pub allow_underscore: bool,
@@ -693,6 +693,12 @@ mod tests {
         let text = "2.5E-2";
         let res = ReadToken::new(&text, 0).number(&settings);
         assert_eq!(res, Some(Range::new(0, 6)));
+
+        let text = "e";
+        let res = ReadToken::new(&text, 0).number(&settings);
+        assert_eq!(res, None);
+        let res = ReadToken::new(&text, 0).parse_number(&settings, 1);
+        assert_eq!(res, Err(ParseNumberError::Invalid))
     }
 
     #[test]
