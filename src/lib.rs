@@ -13,13 +13,13 @@ use range::Range;
 pub struct ReadToken<'a> {
     /// Source.
     pub src: &'a str,
-    /// Character offset.
+    /// Byte offset.
     pub offset: usize,
 }
 
 impl<'a> ReadToken<'a> {
     /// Creates a new `ReadToken`.
-    /// The offset is in characters.
+    /// The offset is in bytes.
     pub fn new(src: &'a str, offset: usize) -> ReadToken<'a> {
         ReadToken {
             src: src,
@@ -27,28 +27,26 @@ impl<'a> ReadToken<'a> {
         }
     }
 
-    /// Consumes n characters.
+    /// Consumes n bytes.
     pub fn consume(self, n: usize) -> ReadToken<'a> {
         if n == 0 { return self; }
-        let utf8_n = self.src.chars().take(n)
-            .map(|c| c.len_utf8()).fold(0, |a, b| a + b);
         ReadToken {
-            src: &self.src[utf8_n..],
+            src: &self.src[n..],
             offset: self.offset + n
         }
     }
 
     /// Reads a raw string.
     pub fn raw_string(&self, n: usize) -> String {
-        self.src.chars().take(n).collect::<String>()
+        self.src[..n].into()
     }
 
-    /// Returns whether a range of characters ended with newline character
+    /// Returns whether a range of bytes ended with newline character
     /// followed by whitespace.
     fn ended_with_newline(&self, range: Range) -> bool {
         let end = range.next_offset() - self.offset;
         let mut ends_with_newline = false;
-        for c in self.src.chars().take(end) {
+        for c in self.src[..end].chars() {
             if c as char == '\n' {
                 ends_with_newline = true;
             } else if !c.is_whitespace() {
@@ -69,7 +67,6 @@ impl<'a> ReadToken<'a> {
         loop {
             let mut ended_with_newline = false;
             let mut reached_end = true;
-            let mut len = 0;
             let mut byte_offset = 0;
             for (i, c) in read_token.src.char_indices() {
                 if c == '\n' {
@@ -81,15 +78,14 @@ impl<'a> ReadToken<'a> {
                     reached_end = false;
                     break;
                 }
-                len += 1;
-                byte_offset = i;
+                byte_offset = i + 1;
             }
             if reached_end {
-                read_token.offset += len;
+                read_token.offset += byte_offset;
                 break;
             } else if ended_with_newline {
                 read_token.src = &read_token.src[byte_offset + 1..];
-                read_token.offset += len + 1;
+                read_token.offset += byte_offset + 1;
                 new_lines |= true;
             } else {
                 if new_lines {
@@ -123,7 +119,7 @@ impl<'a> ReadToken<'a> {
         Range::empty(self.offset)
     }
 
-    /// Peek a number of characters ahead.
+    /// Peek a number of bytes ahead.
     #[inline(always)]
     pub fn peek(&self, n: usize) -> Range {
         Range::new(self.offset, n)
@@ -133,59 +129,58 @@ impl<'a> ReadToken<'a> {
     /// Returns old state when fail to match tag.
     pub fn tag(&self, tag: &str) -> Option<Range> {
         if self.src.starts_with(tag) {
-            Some(self.peek(tag.chars().count()))
+            Some(self.peek(tag.len()))
         } else {
             None
         }
     }
 
     /// Reads a token until any character in string or whitespace.
-    /// Returns `(range, None)` if stopping at whitespace
-    /// or end of characters.
+    /// Returns `(range, None)` if stopping at whitespace or end of text.
     /// Returns `(range, Some(x))` if stopping at a character.
     pub fn until_any_or_whitespace(&self, any: &str) -> (Range, Option<usize>) {
-        for (i, c) in self.src.chars().enumerate() {
+        for (i, c) in self.src.char_indices() {
             if c.is_whitespace() { return (self.peek(i), None) }
-            for (j, b) in any.chars().enumerate() {
+            for (j, b) in any.char_indices() {
                 if c == b { return (self.peek(i), Some(j)) }
             }
         }
-        (self.peek(self.src.chars().count()), None)
+        (self.peek(self.src.len()), None)
     }
 
     /// Reads token until any character in string.
-    /// Returns `(new_state, range, None)` if stopping at end of characters.
+    /// Returns `(new_state, range, None)` if stopping at end of text.
     /// Returns `(new_state, range, Some(x))` if stopping at a character.
     pub fn until_any(&self, any: &str) -> (Range, Option<usize>) {
-        for (i, c) in self.src.chars().enumerate() {
-            for (j, b) in any.chars().enumerate() {
+        for (i, c) in self.src.char_indices() {
+            for (j, b) in any.char_indices() {
                 if c == b { return (self.peek(i), Some(j)) }
             }
         }
-        (self.peek(self.src.chars().count()), None)
+        (self.peek(self.src.len()), None)
     }
 
     /// Reads whitespace.
     pub fn whitespace(&self) -> Range {
-        for (i, c) in self.src.chars().enumerate() {
+        for (i, c) in self.src.char_indices() {
             if !c.is_whitespace() { return self.peek(i); }
         }
-        self.peek(self.src.chars().count())
+        self.peek(self.src.len())
     }
 
     /// Reads string with character escapes.
     pub fn string(&self) -> Option<Range> {
-        let mut chars = self.src.chars();
-        match chars.next() {
+        let mut char_indices = self.src.char_indices();
+        match char_indices.next() {
             None => { return None; }
-            Some('"') => {}
+            Some((_, '"')) => {}
             _ => { return None; }
         }
         let mut escape = false;
-        for (i, c) in chars.enumerate() {
+        for (i, c) in char_indices {
             if !escape && c == '\\' { escape = true; continue; }
             if !escape && c == '"' {
-                return Some(self.peek(i + 2))
+                return Some(self.peek(i + 1))
             }
             if escape { escape = false; }
         }
@@ -199,7 +194,7 @@ impl<'a> ReadToken<'a> {
         let mut has_scientific = false;
         let mut has_exponent_sign = false;
         let mut has_digit = false;
-        for (i, c) in self.src.chars().enumerate() {
+        for (i, c) in self.src.char_indices() {
             if !has_sign {
                 has_sign = true;
                 if c == '+' || c == '-' { continue; }
@@ -224,7 +219,7 @@ impl<'a> ReadToken<'a> {
             if i > 0 { return Some(self.peek(i)); }
             else { return None }
         }
-        if self.src.len() > 0 { Some(self.peek(self.src.chars().count())) }
+        if self.src.len() > 0 { Some(self.peek(self.src.len())) }
         else { None }
     }
 
@@ -233,14 +228,15 @@ impl<'a> ReadToken<'a> {
         use std::char;
 
         let mut u: [u32; 4] = [0; 4];
-        let mut chars = self.src.chars();
-        for (i, c) in u.iter_mut().enumerate() {
-            let ch = match chars.next() {
+        let mut char_indices = self.src.char_indices();
+        let mut byte_offset = 0;
+        for c in u.iter_mut() {
+            let (i, ch) = match char_indices.next() {
                 None => {
                     return Err(Range::new(self.offset, self.src.len())
                         .wrap(ParseStringError::ExpectedFourHexadecimals));
                 }
-                Some(ch) => ch
+                Some(x) => x
             };
             match ch.to_digit(16) {
                 Some(x) => *c = x as u32,
@@ -249,11 +245,12 @@ impl<'a> ReadToken<'a> {
                         .wrap(ParseStringError::ExpectedHexadecimal))
                 }
             }
+            byte_offset = i;
         }
         let code = (u[0] << 12) | (u[1] << 8) | (u[2] << 4) | u[3];
         match char::from_u32(code) {
             Some(x) => Ok(x),
-            None => Err(Range::new(self.offset, 4)
+            None => Err(Range::new(self.offset, byte_offset)
                 .wrap(ParseStringError::ExpectedValidUnicode))
         }
     }
@@ -261,16 +258,14 @@ impl<'a> ReadToken<'a> {
     /// Parses string into a real string according to the JSON standard.
     ///
     /// Assumes the string starts and ends with double-quotes.
-    /// `n` is the number of characters to read and must be at least 2,
+    /// `n` is the number of bytes to read and must be at least 2,
     /// because the string is surrounded by quotes.
     pub fn parse_string(&self, n: usize)
     -> Result<String, Range<ParseStringError>> {
         let mut escape = false;
-        let length = n - 2;
-        let mut txt = String::with_capacity(length);
+        let mut txt = String::with_capacity(n - 2);
         let mut skip_unicode = 0;
-        for (i, (j, c)) in self.src.char_indices()
-            .skip(1).take(length).enumerate() {
+        for (i, c) in self.src[1..n - 1].char_indices() {
             if skip_unicode > 0 {
                 skip_unicode -= 1;
                 continue;
@@ -288,15 +283,15 @@ impl<'a> ReadToken<'a> {
                     'r' => '\r',
                     't' => '\t',
                     'u' => {
-                        let offset = self.offset + 1 + i;
-                        match ReadToken::new(&self.src[j + 1..], offset)
+                        let offset = self.offset + 2 + i;
+                        match ReadToken::new(&self.src[2 + i..], offset)
                             .parse_unicode() {
                             Ok(x) => { skip_unicode = 4; x },
                             Err(err) => return Err(err)
                         }
                     }
                     _ => {
-                        return Err(Range::new(self.offset + i + 1, 1)
+                        return Err(Range::new(self.offset + 1 + i, 1)
                             .wrap(ParseStringError::ExpectedValidEscapeCharacter));
                     }
                 })
@@ -307,7 +302,7 @@ impl<'a> ReadToken<'a> {
         Ok(txt)
     }
 
-    /// Parses number from n characters.
+    /// Parses number from n bytes.
     pub fn parse_number(&self, settings: &NumberSettings, n: usize)
     -> Result<f64, ParseNumberError> {
         #[inline(always)]
@@ -341,8 +336,6 @@ impl<'a> ReadToken<'a> {
         }
 
         let radix: u32 = 10;
-        let n = self.src.chars().take(n)
-            .map(|c| c.len_utf8()).fold(0, |a, b| a + b);
         let src = &self.src[..n];
         let (is_positive, src) =  match slice_shift_char(src) {
             None => {
@@ -554,7 +547,7 @@ mod tests {
 
         let text = "°a";
         let res = ReadToken::new(&text, 0).tag("°a");
-        assert_eq!(res, Some(Range::new(0, 2)));
+        assert_eq!(res, Some(Range::new(0, 3)));
     }
 
     #[test]
@@ -618,7 +611,7 @@ mod tests {
 
         let text = "\"😎\"";
         let res = ReadToken::new(&text, 0).string();
-        assert_eq!(res, Some(Range::new(0, 3)));
+        assert_eq!(res, Some(Range::new(0, 6)));
         let txt = ReadToken::new(&text, 0).parse_string(res.unwrap().length);
         let txt = txt.unwrap();
         assert_eq!(txt, "😎");
