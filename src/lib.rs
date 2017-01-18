@@ -78,7 +78,7 @@ impl<'a> ReadToken<'a> {
                     reached_end = false;
                     break;
                 }
-                byte_offset = i;
+                byte_offset = i + 1;
             }
             if reached_end {
                 read_token.offset += byte_offset;
